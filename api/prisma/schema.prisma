@@ -1,0 +1,207 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum TripStatus {
+  ON_TIME
+  DELAYED
+  CANCELLED
+}
+
+enum BookingStatus {
+  HOLDING
+  PAID
+  EXPIRED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+  FAILED
+}
+
+enum SeatStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum NotificationType {
+  BOOKING_HELD
+  BOOKING_PAID
+  TRIP_DELAYED
+  TRIP_CANCELLED
+  REFUND_ISSUED
+  INVOICE_SENT
+  BOOKING_EXPIRED
+}
+
+model User {
+  id            String         @id @default(cuid())
+  name          String
+  email         String         @unique
+  role          UserRole       @default(USER)
+  bookings      Booking[]
+  notifications Notification[]
+  emailLogs     EmailLog[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Train {
+  id         String     @id @default(cuid())
+  code       String     @unique
+  name       String
+  carriages  Carriage[]
+  trips      Trip[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+model Carriage {
+  id         String    @id @default(cuid())
+  trainId    String
+  train      Train     @relation(fields: [trainId], references: [id], onDelete: Cascade)
+  code       String
+  orderIndex Int
+  seats      Seat[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([trainId, orderIndex])
+}
+
+model Seat {
+  id          String      @id @default(cuid())
+  carriageId  String
+  carriage    Carriage    @relation(fields: [carriageId], references: [id], onDelete: Cascade)
+  code        String
+  orderIndex  Int
+  status      SeatStatus  @default(ACTIVE)
+  bookingSeats BookingSeat[]
+
+  @@unique([carriageId, code])
+}
+
+model Trip {
+  id            String      @id @default(cuid())
+  trainId       String
+  train         Train       @relation(fields: [trainId], references: [id], onDelete: Restrict)
+  origin        String
+  destination   String
+  departureTime DateTime
+  arrivalTime   DateTime
+  price         Decimal     @db.Decimal(12, 2)
+  status        TripStatus  @default(ON_TIME)
+  delayMinutes  Int         @default(0)
+  note          String?
+  bookings      Booking[]
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([departureTime])
+  @@index([origin, destination])
+}
+
+model Booking {
+  id            String         @id @default(cuid())
+  code          String         @unique
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  tripId        String
+  trip          Trip           @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  status        BookingStatus  @default(HOLDING)
+  holdExpiresAt DateTime?
+  totalAmount   Decimal        @db.Decimal(12, 2)
+  contactEmail  String
+  seatCount     Int            @default(0)
+  bookingSeats  BookingSeat[]
+  payment       Payment?
+  ticket        Ticket?
+  notifications Notification[]
+  emailLogs     EmailLog[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([status, holdExpiresAt])
+  @@index([userId, createdAt])
+}
+
+model BookingSeat {
+  id            String   @id @default(cuid())
+  bookingId     String
+  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  seatId        String
+  seat          Seat     @relation(fields: [seatId], references: [id], onDelete: Restrict)
+  priceSnapshot Decimal  @db.Decimal(12, 2)
+
+  @@unique([bookingId, seatId])
+  @@index([seatId])
+}
+
+model Payment {
+  id             String         @id @default(cuid())
+  bookingId      String         @unique
+  booking        Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  status         PaymentStatus  @default(PENDING)
+  method         String         @default("MOCK")
+  transactionRef String?
+  amount         Decimal        @db.Decimal(12, 2)
+  paidAt         DateTime?
+  refundedAt     DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model Ticket {
+  id            String   @id @default(cuid())
+  bookingId     String   @unique
+  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  ticketNumber  String   @unique
+  qrToken       String   @unique
+  qrDataUrl     String
+  eTicketUrl    String?
+  issuedAt      DateTime @default(now())
+  invoiceNumber String?
+
+  @@index([ticketNumber])
+}
+
+model Notification {
+  id        String            @id @default(cuid())
+  userId    String
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookingId String?
+  booking   Booking?          @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  type      NotificationType
+  message   String
+  readAt    DateTime?
+  createdAt DateTime          @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model EmailLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  bookingId String?
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  kind      String
+  subject   String
+  toEmail   String
+  html      String
+  sentAt    DateTime @default(now())
+}
