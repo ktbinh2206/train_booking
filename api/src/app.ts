@@ -11,6 +11,7 @@ import { notificationRoutes } from './routes/notificationRoutes';
 import { ticketRoutes } from './routes/ticketRoutes';
 import { tripRoutes } from './routes/tripRoutes';
 import { userRoutes } from './routes/userRoutes';
+import { listStations } from './services/tripService';
 
 dotenv.config();
 
@@ -32,6 +33,14 @@ export function createApp() {
   app.use('/api/meta', metaRoutes);
   app.use('/api/auth', authRoutes);
   app.use('/api/trips', tripRoutes);
+  app.get('/api/stations', async (request, response, next) => {
+    try {
+      const q = typeof request.query.q === 'string' ? request.query.q : undefined;
+      response.json(await listStations(q));
+    } catch (error) {
+      next(error);
+    }
+  });
   app.use('/api/bookings', bookingRoutes);
   app.use('/api/tickets', ticketRoutes);
   app.use('/api/users', userRoutes);

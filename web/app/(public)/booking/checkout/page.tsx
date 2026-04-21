@@ -72,6 +72,14 @@ function CheckoutPageContent() {
         setError(null);
 
         const detail = await getTripDetail(tripId);
+        const availableSeatIds = new Set(
+          detail.carriages.flatMap((carriage) => carriage.seats.filter((seat) => seat.available).map((seat) => seat.id))
+        );
+        const unavailableSeats = seatIds.filter((seatId) => !availableSeatIds.has(seatId));
+
+        if (unavailableSeats.length > 0) {
+          throw new Error('Một hoặc nhiều ghế đã được giữ hoặc đã bán. Vui lòng quay lại chọn ghế khác.');
+        }
 
         if (!active) return;
 

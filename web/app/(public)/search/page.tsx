@@ -9,49 +9,51 @@ import { Card } from '@/components/ui/card';
 import { ArrowRightLeft, Calendar, Users, ArrowRight, Bus, Star, Zap } from 'lucide-react';
 import { StationSearchSelect } from '@/components/public/station-search-select';
 import { toLocalYmd } from '@/lib/utils';
-
-const POPULAR_ROUTES = [
-  { from: 'Hà Nội', to: 'Đà Nẵng', trips: '45+', duration: '20h 30m' },
-  { from: 'Hà Nội', to: 'TP.HCM', trips: '38+', duration: '27h 15m' },
-  { from: 'Nha Trang', to: 'Đà Nẵng', trips: '32+', duration: '12h 45m' },
-  { from: 'Huế', to: 'Hà Nội', trips: '28+', duration: '18h' },
-  { from: 'Sài Gòn', to: 'Nha Trang', trips: '56+', duration: '3h 30m' },
-  { from: 'Hà Nội', to: 'Vinh', trips: '42+', duration: '2h 45m' },
-];
+import { TodayTrips } from '@/components/public/today-trips';
 
 export default function SearchPage() {
   const router = useRouter();
   const [tripType, setTripType] = useState<'one-way' | 'round-trip'>('one-way');
-  const [fromCity, setFromCity] = useState('');
-  const [toCity, setToCity] = useState('');
-  const [departDate, setDepartDate] = useState('');
-  const [returnDate, setReturnDate] = useState('');
+  const [departureStationId, setDepartureStationId] = useState('');
+  const [arrivalStationId, setArrivalStationId] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [passengers, setPassengers] = useState('1');
+  const [searchError, setSearchError] = useState('');
 
   useEffect(() => {
     const today = toLocalYmd();
-    setDepartDate((previous) => previous || today);
+    setFromDate((previous) => previous || today);
+    setToDate((previous) => previous || today);
   }, []);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    setSearchError('');
+
+    if (!departureStationId || !arrivalStationId) {
+      setSearchError('Vui lòng chọn đầy đủ ga đi và ga đến.');
+      return;
+    }
+
+    if (departureStationId === arrivalStationId) {
+      setSearchError('Ga đi và ga đến phải khác nhau.');
+      return;
+    }
+
+    if (tripType === 'round-trip' && toDate && fromDate && toDate < fromDate) {
+      setSearchError('Ngày về phải sau ngày đi.');
+      return;
+    }
+
     const searchParams = new URLSearchParams();
-    if (fromCity.trim()) searchParams.set('source', fromCity.trim());
-    if (toCity.trim()) searchParams.set('destination', toCity.trim());
-    if (departDate.trim()) searchParams.set('date', departDate.trim());
-    if (tripType === 'round-trip' && returnDate.trim()) searchParams.set('returnDate', returnDate.trim());
+    if (departureStationId.trim()) searchParams.set('departureStationId', departureStationId.trim());
+    if (arrivalStationId.trim()) searchParams.set('arrivalStationId', arrivalStationId.trim());
+    if (fromDate.trim()) searchParams.set('fromDate', fromDate.trim());
+    searchParams.set('toDate', tripType === 'round-trip' ? toDate.trim() : fromDate.trim());
+    searchParams.set('tripType', tripType);
     searchParams.set('passengers', passengers);
 
-    router.push(`/results?${searchParams.toString()}`);
-  };
-
-  const handleQuickRoute = (from: string, to: string) => {
-    const searchParams = new URLSearchParams({
-      source: from,
-      destination: to,
-      date: toLocalYmd(),
-      passengers: '1',
-    });
     router.push(`/results?${searchParams.toString()}`);
   };
 
@@ -99,10 +101,10 @@ export default function SearchPage() {
                 <div>
                   <StationSearchSelect
                     label="Ga đi"
-                    value={fromCity}
+                    value={departureStationId}
                     placeholder="Chọn ga đi"
-                    exclude={toCity}
-                    onChange={setFromCity}
+                    exclude={arrivalStationId}
+                    onChange={setDepartureStationId}
                   />
                 </div>
 
@@ -110,10 +112,10 @@ export default function SearchPage() {
                 <div>
                   <StationSearchSelect
                     label="Ga đến"
-                    value={toCity}
+                    value={arrivalStationId}
                     placeholder="Chọn ga đến"
-                    exclude={fromCity}
-                    onChange={setToCity}
+                    exclude={departureStationId}
+                    onChange={setArrivalStationId}
                   />
                 </div>
 
@@ -123,8 +125,8 @@ export default function SearchPage() {
                     variant="outline"
                     className="w-full"
                     onClick={() => {
-                      setFromCity(toCity);
-                      setToCity(fromCity);
+                      setDepartureStationId(arrivalStationId);
+                      setArrivalStationId(departureStationId);
                     }}
                   >
                     <ArrowRightLeft className="w-4 h-4 mr-2" />
@@ -139,8 +141,8 @@ export default function SearchPage() {
                     <Calendar className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
                     <Input
                       type="date"
-                      value={departDate}
-                      onChange={(e) => setDepartDate(e.target.value)}
+                      value={fromDate}
+                      onChange={(e) => setFromDate(e.target.value)}
                       min={toLocalYmd()}
                       className="pl-10 border-gray-300"
                     />
@@ -155,9 +157,9 @@ export default function SearchPage() {
                       <Calendar className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
                       <Input
                         type="date"
-                        value={returnDate}
-                        onChange={(e) => setReturnDate(e.target.value)}
-                        min={departDate || toLocalYmd()}
+                        value={toDate}
+                        onChange={(e) => setToDate(e.target.value)}
+                        min={fromDate || toLocalYmd()}
                         className="pl-10 border-gray-300"
                       />
                     </div>
@@ -195,6 +197,7 @@ export default function SearchPage() {
                   </Button>
                 </div>
               </form>
+              {searchError ? <p className="mt-4 text-sm text-red-600">{searchError}</p> : null}
             </div>
           </Card>
         </div>
@@ -230,27 +233,7 @@ export default function SearchPage() {
         </div>
       </div>
 
-      {/* Popular Routes Section */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">Tuyến phổ biến</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {POPULAR_ROUTES.map((route, index) => (
-            <button
-              key={index}
-              onClick={() => handleQuickRoute(route.from, route.to)}
-              className="bg-white rounded-lg p-5 border border-gray-200 hover:shadow-lg hover:border-blue-300 transition-all text-left"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <p className="font-semibold text-gray-900">
-                  {route.from} <span className="text-gray-400">→</span> {route.to}
-                </p>
-              </div>
-              <p className="text-sm text-gray-600">{route.trips} chuyến tàu</p>
-              <p className="text-sm text-gray-500">Thời gian trung bình: {route.duration}</p>
-            </button>
-          ))}
-        </div>
-      </div>
+      <TodayTrips title="Chuyến hôm nay" />
     </div>
   );
 }

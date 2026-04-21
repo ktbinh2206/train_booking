@@ -1,39 +1,51 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Search, Eye } from 'lucide-react';
+import { Search, Eye, Plus, Edit2, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { getAdminTickets } from '@/lib/api';
+import { createAdminTicket, deleteAdminTicket, getAdminTickets, updateAdminTicket } from '@/lib/api';
 import { formatCurrencyVND, formatDateTimeVn } from '@/lib/utils';
 
 export default function TicketsPage() {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [data, setData] = useState<Awaited<ReturnType<typeof getAdminTickets>>>([]);
+  const [data, setData] = useState<Awaited<ReturnType<typeof getAdminTickets>>['data']>([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    bookingId: '',
+    qrDataUrl: 'https://example.local/qr/',
+    eTicketUrl: '',
+    invoiceNumber: ''
+  });
+
+  const loadTickets = async (targetPage = page) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const payload = await getAdminTickets({ page: targetPage, pageSize: 10 });
+      setData(Array.isArray(payload.data) ? payload.data : []);
+      setPage(payload.page);
+      setTotalPages(payload.totalPages);
+    } catch (unknownError) {
+      const message = unknownError instanceof Error ? unknownError.message : 'Không thể tải danh sách vé.';
+      setError(message);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     let active = true;
 
     const run = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const payload = await getAdminTickets();
-        if (active) {
-          setData(payload);
-        }
-      } catch (unknownError) {
-        if (!active) return;
-        const message = unknownError instanceof Error ? unknownError.message : 'Không thể tải danh sách vé.';
-        setError(message);
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
+      await loadTickets(1);
     };
 
     run();
@@ -45,8 +57,9 @@ export default function TicketsPage() {
 
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
+    const safeData = Array.isArray(data) ? data : [];
 
-    return data.filter((ticket) => {
+    return safeData.filter((ticket) => {
       const matchesQuery =
         !normalizedQuery ||
         ticket.booking.code.toLowerCase().includes(normalizedQuery) ||
@@ -59,9 +72,93 @@ export default function TicketsPage() {
     });
   }, [data, query, statusFilter]);
 
+  const handleDelete = async (ticketId: string) => {
+    try {
+      setError(null);
+      await deleteAdminTicket(ticketId);
+      await loadTickets(page);
+    } catch (unknownError) {
+      const message = unknownError instanceof Error ? unknownError.message : 'Xóa vé thất bại.';
+      setError(message);
+    }
+  };
+
+  const handleEdit = (ticketId: string) => {
+    const ticket = data.find((item) => item.id === ticketId);
+    if (!ticket) return;
+    setEditingId(ticket.id);
+    setShowForm(true);
+    setForm({
+      bookingId: ticket.booking.id,
+      qrDataUrl: 'https://example.local/qr/',
+      eTicketUrl: '',
+      invoiceNumber: ''
+    });
+  };
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      setError(null);
+      if (editingId) {
+        await updateAdminTicket(editingId, {
+          qrDataUrl: form.qrDataUrl || undefined,
+          eTicketUrl: form.eTicketUrl || null,
+          invoiceNumber: form.invoiceNumber || null
+        });
+      } else {
+        if (!form.bookingId) {
+          setError('Vui lòng nhập bookingId để tạo vé.');
+          return;
+        }
+        await createAdminTicket({
+          bookingId: form.bookingId,
+          qrDataUrl: form.qrDataUrl,
+          eTicketUrl: form.eTicketUrl || undefined,
+          invoiceNumber: form.invoiceNumber || undefined
+        });
+      }
+
+      setShowForm(false);
+      setEditingId(null);
+      setForm({
+        bookingId: '',
+        qrDataUrl: 'https://example.local/qr/',
+        eTicketUrl: '',
+        invoiceNumber: ''
+      });
+      await loadTickets(page);
+    } catch (unknownError) {
+      const message = unknownError instanceof Error ? unknownError.message : 'Lưu vé thất bại.';
+      setError(message);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold text-gray-900">Quản lý vé</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold text-gray-900">Quản lý vé</h1>
+        <Button className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2" onClick={() => {
+          setShowForm((previous) => !previous);
+          setEditingId(null);
+        }}>
+          <Plus className="w-4 h-4" />
+          {showForm ? 'Đóng form' : 'Tạo vé'}
+        </Button>
+      </div>
+
+      {showForm && (
+        <form onSubmit={handleSubmit} className="bg-white rounded-lg border border-gray-200 p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+          <Input placeholder="Booking ID" value={form.bookingId} disabled={Boolean(editingId)} onChange={(event) => setForm((previous) => ({ ...previous, bookingId: event.target.value }))} />
+          <Input placeholder="QR Data URL" value={form.qrDataUrl} onChange={(event) => setForm((previous) => ({ ...previous, qrDataUrl: event.target.value }))} />
+          <Input placeholder="E-ticket URL" value={form.eTicketUrl} onChange={(event) => setForm((previous) => ({ ...previous, eTicketUrl: event.target.value }))} />
+          <Input placeholder="Invoice" value={form.invoiceNumber} onChange={(event) => setForm((previous) => ({ ...previous, invoiceNumber: event.target.value }))} />
+          <div className="md:col-span-4 flex gap-2">
+            <Button type="submit" className="bg-blue-600 hover:bg-blue-700">{editingId ? 'Cập nhật vé' : 'Tạo vé'}</Button>
+            <Button type="button" variant="outline" onClick={() => setShowForm(false)}>Hủy</Button>
+          </div>
+        </form>
+      )}
 
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <div className="flex gap-3 mb-4 flex-wrap">
@@ -110,11 +207,23 @@ export default function TicketsPage() {
                     <Button variant="outline" size="sm" onClick={() => window.open(`/tickets/${ticket.booking.id}`, '_blank')}>
                       <Eye className="w-4 h-4" />
                     </Button>
+                    <Button variant="outline" size="sm" onClick={() => handleEdit(ticket.id)}>
+                      <Edit2 className="w-4 h-4" />
+                    </Button>
+                    <Button variant="outline" size="sm" className="text-red-600" onClick={() => handleDelete(ticket.id)}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <Button variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => loadTickets(page - 1)}>Prev</Button>
+          <span className="text-sm text-gray-600">Trang {page} / {totalPages}</span>
+          <Button variant="outline" size="sm" disabled={page >= totalPages || loading} onClick={() => loadTickets(page + 1)}>Next</Button>
         </div>
       </div>
     </div>

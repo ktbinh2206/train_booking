@@ -4,15 +4,21 @@ import { toVnYmd } from '@/lib/utils';
 
 type ApiTripSearchItem = {
   id: string;
+  trainId?: string;
   trainCode: string | null;
   trainName: string | null;
   origin: string;
   destination: string;
+  originStationId?: string | null;
+  destinationStationId?: string | null;
   departureTime: string;
+  departureTimeVN?: string;
   arrivalTime: string;
+  arrivalTimeVN?: string;
   price: number;
   status: 'ON_TIME' | 'DELAYED' | 'CANCELLED';
   delayMinutes: number;
+  delayedDepartureTime?: string | null;
   availableSeatCount: number;
   capacity: number;
 };
@@ -37,6 +43,7 @@ type ApiTripDetail = {
     price: number;
     status: 'ON_TIME' | 'DELAYED' | 'CANCELLED';
     delayMinutes: number;
+    delayedDepartureTime?: string | null;
   };
   carriages: Array<{
     id: string;
@@ -57,6 +64,8 @@ type ApiBooking = {
   code: string;
   status: 'HOLDING' | 'PAID' | 'EXPIRED' | 'CANCELLED' | 'REFUNDED';
   holdExpiresAt: string | null;
+  expiredAt?: string | null;
+  isAffected?: boolean;
   totalAmount: number;
   contactEmail: string;
   seatCount: number;
@@ -78,6 +87,8 @@ type ApiBooking = {
     arrivalTime: string;
     price: number;
     status: 'ON_TIME' | 'DELAYED' | 'CANCELLED';
+    delayMinutes?: number;
+    delayedDepartureTime?: string | null;
   };
   payment: {
     id: string;
@@ -204,7 +215,8 @@ function toUiTrip(raw: ApiTripSearchItem): Trip {
     status: mapTripStatus(raw.status),
     date: toVnYmd(departure),
     trainNumber: raw.trainCode ?? '-',
-    trainName: raw.trainName ?? 'Tàu chưa xác định'
+    trainName: raw.trainName ?? 'Tàu chưa xác định',
+    delayedDepartureTime: raw.delayedDepartureTime ?? null
   };
 }
 
@@ -237,9 +249,12 @@ export async function getDemoMeta() {
 }
 
 export async function searchTrips(params: {
-  origin?: string;
-  destination?: string;
+  departureStationId?: string;
+  arrivalStationId?: string;
   date?: string;
+  fromDate?: string;
+  toDate?: string;
+  tripType?: 'one-way' | 'round-trip';
   page?: number;
   pageSize?: number;
 }) {
@@ -253,8 +268,43 @@ export async function searchTrips(params: {
   };
 }
 
+export async function searchTripsByStationAndDate(params: {
+  departureStationId?: string;
+  arrivalStationId?: string;
+  fromDate: string;
+  toDate: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  return searchTrips(params);
+}
+
+type ApiTripTodayItem = ApiTripSearchItem;
+
+type ApiTripTodayResponse = {
+  data?: ApiTripTodayItem[];
+  items?: ApiTripTodayItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+};
+
+export async function getTodayTrips(params?: { page?: number; pageSize?: number }) {
+  const data = await apiRequest<ApiTripTodayResponse>('/api/trips/today', { params });
+  const items = Array.isArray(data.data) ? data.data : Array.isArray(data.items) ? data.items : [];
+
+  return {
+    items: items.map(toUiTrip),
+    page: data.page,
+    pageSize: data.pageSize,
+    total: data.total,
+    totalPages: data.totalPages
+  };
+}
+
 export async function listStations(query?: string) {
-  const data = await apiRequest<{ items: string[] }>('/api/trips/stations', {
+  const data = await apiRequest<{ items: Array<{ id: string; code: string; name: string; city: string; label: string }> }>('/api/stations', {
     params: {
       q: query?.trim() || undefined
     }
@@ -277,11 +327,43 @@ export async function getTripDetail(tripId: string) {
       price: data.trip.price,
       status: data.trip.status,
       delayMinutes: data.trip.delayMinutes,
+      delayedDepartureTime: data.trip.delayedDepartureTime,
       availableSeatCount: data.carriages.flatMap((carriage) => carriage.seats).filter((seat) => seat.available).length,
       capacity: data.carriages.flatMap((carriage) => carriage.seats).length
     }),
     carriages: data.carriages
   };
+}
+
+export async function getTripSeatsDetail(tripId: string) {
+  return apiRequest<{
+    trip: {
+      id: string;
+      trainCode: string | null;
+      trainName: string | null;
+      origin: string;
+      destination: string;
+      departureTime: string;
+      departureTimeVN?: string;
+      arrivalTime: string;
+      arrivalTimeVN?: string;
+      price: number;
+    };
+    carriages: Array<{
+      id: string;
+      code: string;
+      orderIndex: number;
+      type?: string;
+      seats: Array<{
+        id: string;
+        code: string;
+        orderIndex: number;
+        status: 'ACTIVE' | 'INACTIVE';
+        available: boolean;
+        reserved?: boolean;
+      }>;
+    }>;
+  }>(`/api/trips/${tripId}/seats`);
 }
 
 export function mapCarriagesToUi(data: ApiTripDetail['carriages'], trip: Trip): Carriage[] {
@@ -333,6 +415,15 @@ export async function payBooking(bookingId: string) {
   });
 }
 
+export async function cancelBooking(bookingId: string, reason?: string) {
+  return apiRequest<ApiBooking>(`/api/bookings/${bookingId}/cancel`, {
+    method: 'POST',
+    body: {
+      reason: reason?.trim() || undefined
+    }
+  });
+}
+
 export async function listBookings(userId?: string) {
   return apiRequest<ApiBooking[]>('/api/bookings', {
     params: { userId: userId || undefined }
@@ -361,10 +452,10 @@ export async function getCurrentUser(_userId?: string): Promise<User> {
 }
 
 function mapNotificationType(type: string): Notification['type'] {
-  if (type === 'BOOKING_HELD' || type === 'BOOKING_PAID') return 'booking';
-  if (type === 'TRIP_DELAYED' || type === 'TRIP_CANCELLED') return 'trip';
-  if (type === 'REFUND_ISSUED') return 'refund';
-  if (type === 'INVOICE_SENT') return 'payment';
+  if (type === 'HOLD_EXPIRE') return 'booking';
+  if (type === 'REMINDER') return 'trip';
+  if (type === 'DELAY') return 'delay';
+  if (type === 'CANCEL') return 'refund';
   return 'general';
 }
 
@@ -411,51 +502,350 @@ export async function getAdminReports() {
   }>('/api/admin/reports');
 }
 
-export async function getAdminTrips() {
-  return apiRequest<Array<{
-    id: string;
-    trainCode: string;
-    origin: string;
-    destination: string;
-    departureTime: string;
-    status: 'ON_TIME' | 'DELAYED' | 'CANCELLED';
-  }>>('/api/trips/admin');
+export type AdminPagedResponse<T> = {
+  data?: T[];
+  items?: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
+
+function normalizePagedData<T>(payload: AdminPagedResponse<T> | T[]) {
+  if (Array.isArray(payload)) {
+    return {
+      data: payload,
+      total: payload.length,
+      page: 1,
+      pageSize: payload.length,
+      totalPages: 1
+    };
+  }
+
+  const data = Array.isArray(payload.data)
+    ? payload.data
+    : Array.isArray(payload.items)
+      ? payload.items
+      : [];
+
+  return {
+    data,
+    total: payload.total,
+    page: payload.page,
+    pageSize: payload.pageSize,
+    totalPages: payload.totalPages
+  };
 }
 
-export async function getAdminTickets() {
-  return apiRequest<Array<{
+export type AdminStation = {
+  id: string;
+  code: string;
+  name: string;
+  city: string;
+};
+
+export type AdminTrip = {
+  id: string;
+  trainId: string;
+  originStationId: string | null;
+  destinationStationId: string | null;
+  origin: string;
+  destination: string;
+  departureTime: string;
+  arrivalTime: string;
+  price: number;
+  status: 'ON_TIME' | 'DELAYED' | 'CANCELLED';
+  delayMinutes: number;
+  train: {
     id: string;
-    ticketNumber: string;
-    issuedAt: string;
-    booking: {
+    code: string;
+    name: string;
+  };
+  originStation?: AdminStation | null;
+  destinationStation?: AdminStation | null;
+};
+
+export type AdminCarriage = {
+  id: string;
+  trainId: string;
+  code: string;
+  orderIndex: number;
+  type: 'SOFT_SEAT' | 'HARD_SEAT' | 'SLEEPER';
+  train: {
+    id: string;
+    code: string;
+    name: string;
+  };
+  _count?: {
+    seats: number;
+  };
+};
+
+export type AdminSeat = {
+  id: string;
+  carriageId: string;
+  code: string;
+  orderIndex: number;
+  status: 'ACTIVE' | 'INACTIVE';
+  carriage: {
+    id: string;
+    code: string;
+    orderIndex: number;
+    train: {
       id: string;
       code: string;
-      status: 'HOLDING' | 'PAID' | 'EXPIRED' | 'CANCELLED' | 'REFUNDED';
-      totalAmount: number;
-      seatCodes: string[];
-      user: {
-        id: string;
-        name: string;
-        email: string;
-      };
-      trip: {
-        id: string;
-        trainCode: string;
-        trainName: string;
-        origin: string;
-        destination: string;
-        departureTime: string;
-        arrivalTime: string;
-        status: 'ON_TIME' | 'DELAYED' | 'CANCELLED';
-      };
-      payment: {
-        id: string;
-        status: 'PENDING' | 'PAID' | 'REFUNDED' | 'FAILED';
-        method: string;
-        paidAt: string | null;
-      } | null;
+      name: string;
     };
-  }>>('/api/admin/tickets');
+  };
+};
+
+export type AdminTicket = {
+  id: string;
+  ticketNumber: string;
+  issuedAt: string;
+  booking: {
+    id: string;
+    code: string;
+    status: 'HOLDING' | 'PAID' | 'EXPIRED' | 'CANCELLED' | 'REFUNDED';
+    totalAmount: number;
+    user: {
+      id: string;
+      name: string;
+      email: string;
+    };
+    trip: {
+      id: string;
+      origin: string;
+      destination: string;
+      departureTime: string;
+      arrivalTime: string;
+      train: {
+        id: string;
+        code: string;
+        name: string;
+      };
+    };
+  };
+};
+
+export type AdminUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: 'USER' | 'ADMIN';
+  createdAt: string;
+  _count?: {
+    bookings: number;
+    notifications: number;
+  };
+};
+
+export type AdminTrain = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+export async function getAdminTrains(params?: { page?: number; pageSize?: number }) {
+  const payload = await apiRequest<AdminPagedResponse<AdminTrain>>('/api/admin/trains', { params });
+  return normalizePagedData(payload);
+}
+
+export async function getAdminTrips(params?: { page?: number; pageSize?: number }) {
+  const payload = await apiRequest<AdminPagedResponse<AdminTrip>>('/api/admin/trips', { params });
+  return normalizePagedData(payload);
+}
+
+export async function createAdminTrip(input: {
+  trainId: string;
+  originStationId: string;
+  destinationStationId: string;
+  departureTime: string;
+  arrivalTime: string;
+  price: number;
+}) {
+  return apiRequest<AdminTrip>('/api/admin/trips', {
+    method: 'POST',
+    body: input
+  });
+}
+
+export async function updateAdminTrip(tripId: string, input: Partial<{
+  trainId: string;
+  originStationId: string;
+  destinationStationId: string;
+  departureTime: string;
+  arrivalTime: string;
+  price: number;
+  status: 'ON_TIME' | 'DELAYED' | 'CANCELLED';
+  delayMinutes: number;
+}>) {
+  return apiRequest<AdminTrip>(`/api/admin/trips/${tripId}`, {
+    method: 'PUT',
+    body: input
+  });
+}
+
+export async function getAdminCarriages(params?: { page?: number; pageSize?: number; trainId?: string }) {
+  const payload = await apiRequest<AdminPagedResponse<AdminCarriage>>('/api/admin/carriages', { params });
+  return normalizePagedData(payload);
+}
+
+export async function createAdminCarriage(input: {
+  trainId: string;
+  code: string;
+  orderIndex: number;
+  type: 'SOFT_SEAT' | 'HARD_SEAT' | 'SLEEPER';
+}) {
+  return apiRequest<AdminCarriage>('/api/admin/carriages', {
+    method: 'POST',
+    body: input
+  });
+}
+
+export async function updateAdminCarriage(carriageId: string, input: Partial<{
+  code: string;
+  orderIndex: number;
+  type: 'SOFT_SEAT' | 'HARD_SEAT' | 'SLEEPER';
+}>) {
+  return apiRequest<AdminCarriage>(`/api/admin/carriages/${carriageId}`, {
+    method: 'PUT',
+    body: input
+  });
+}
+
+export async function deleteAdminCarriage(carriageId: string) {
+  return apiRequest<{ success: boolean }>(`/api/admin/carriages/${carriageId}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function getAdminSeats(params?: { page?: number; pageSize?: number; carriageId?: string }) {
+  const payload = await apiRequest<AdminPagedResponse<AdminSeat>>('/api/admin/seats', { params });
+  return normalizePagedData(payload);
+}
+
+export async function createAdminSeat(input: {
+  carriageId: string;
+  code: string;
+  orderIndex: number;
+  status?: 'ACTIVE' | 'INACTIVE';
+}) {
+  return apiRequest<AdminSeat>('/api/admin/seats', {
+    method: 'POST',
+    body: input
+  });
+}
+
+export async function updateAdminSeat(seatId: string, input: Partial<{
+  code: string;
+  orderIndex: number;
+  status: 'ACTIVE' | 'INACTIVE';
+}>) {
+  return apiRequest<AdminSeat>(`/api/admin/seats/${seatId}`, {
+    method: 'PUT',
+    body: input
+  });
+}
+
+export async function deleteAdminSeat(seatId: string) {
+  return apiRequest<{ success: boolean }>(`/api/admin/seats/${seatId}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function getAdminTickets(params?: { page?: number; pageSize?: number }) {
+  const payload = await apiRequest<AdminPagedResponse<AdminTicket>>('/api/admin/tickets', { params });
+  return normalizePagedData(payload);
+}
+
+export async function deleteAdminTicket(ticketId: string) {
+  return apiRequest<{ success: boolean }>(`/api/admin/tickets/${ticketId}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function createAdminTicket(input: {
+  bookingId: string;
+  qrDataUrl: string;
+  eTicketUrl?: string;
+  invoiceNumber?: string;
+}) {
+  return apiRequest<AdminTicket>('/api/admin/tickets', {
+    method: 'POST',
+    body: input
+  });
+}
+
+export async function updateAdminTicket(ticketId: string, input: {
+  qrDataUrl?: string;
+  eTicketUrl?: string | null;
+  invoiceNumber?: string | null;
+}) {
+  return apiRequest<AdminTicket>(`/api/admin/tickets/${ticketId}`, {
+    method: 'PUT',
+    body: input
+  });
+}
+
+export async function getAdminUsers(params?: { page?: number; pageSize?: number }) {
+  const payload = await apiRequest<AdminPagedResponse<AdminUser>>('/api/admin/users', { params });
+  return normalizePagedData(payload);
+}
+
+export async function createAdminUser(input: {
+  name: string;
+  email: string;
+  password: string;
+  role?: 'USER' | 'ADMIN';
+}) {
+  return apiRequest<AdminUser>('/api/admin/users', {
+    method: 'POST',
+    body: input
+  });
+}
+
+export async function updateAdminUser(userId: string, input: Partial<{
+  name: string;
+  email: string;
+  password: string;
+  role: 'USER' | 'ADMIN';
+}>) {
+  return apiRequest<AdminUser>(`/api/admin/users/${userId}`, {
+    method: 'PUT',
+    body: input
+  });
+}
+
+export async function deleteAdminUser(userId: string) {
+  return apiRequest<{ success: boolean }>(`/api/admin/users/${userId}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function getAdminStations(params?: { page?: number; pageSize?: number }) {
+  const payload = await apiRequest<AdminPagedResponse<AdminStation>>('/api/admin/stations', { params });
+  return normalizePagedData(payload);
+}
+
+export async function createAdminStation(input: { code: string; name: string; city: string }) {
+  return apiRequest<AdminStation>('/api/admin/stations', {
+    method: 'POST',
+    body: input
+  });
+}
+
+export async function updateAdminStation(stationId: string, input: Partial<{ code: string; name: string; city: string }>) {
+  return apiRequest<AdminStation>(`/api/admin/stations/${stationId}`, {
+    method: 'PUT',
+    body: input
+  });
+}
+
+export async function deleteAdminStation(stationId: string) {
+  return apiRequest<{ success: boolean }>(`/api/admin/stations/${stationId}`, {
+    method: 'DELETE'
+  });
 }
 
 export async function getAdminRecentBookings(limit = 8) {

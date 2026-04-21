@@ -1,46 +1,121 @@
-import { Prisma } from '@prisma/client';
+import { TripStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { isBookingUsable } from '../lib/bookingHelpers';
 import { parseVnDateInputToUtcRange, startOfDay } from '../lib/dates';
+import { getEndOfDayUTC7, getStartOfDayUTC7, getTodayInVN, isValidDateString, toVNTimeString } from '../lib/timezone';
 
-export async function searchTrips(input: {
-  origin?: string | undefined;
-  destination?: string | undefined;
+type TripSearchInput = {
+  departureStationId?: string | undefined;
+  arrivalStationId?: string | undefined;
   date?: string | undefined;
+  fromDate?: string | undefined;
+  toDate?: string | undefined;
+  tripType?: 'one-way' | 'round-trip' | undefined;
   page?: number | undefined;
   pageSize?: number | undefined;
-}) {
-  const where: any = {};
-  const now = new Date();
-  const page = Number.isFinite(input.page) && (input.page ?? 0) > 0 ? Number(input.page) : 1;
-  const pageSize = Number.isFinite(input.pageSize) && (input.pageSize ?? 0) > 0
-    ? Math.min(Number(input.pageSize), 100)
+};
+
+function normalizePage(page?: number, pageSize?: number) {
+  const safePage = Number.isFinite(page) && (page ?? 0) > 0 ? Number(page) : 1;
+  const safePageSize = Number.isFinite(pageSize) && (pageSize ?? 0) > 0
+    ? Math.min(Number(pageSize), 100)
     : 10;
 
-  if (input.origin?.trim()) {
-    where.origin = { contains: input.origin.trim(), mode: 'insensitive' };
+  return {
+    page: safePage,
+    pageSize: safePageSize,
+    skip: (safePage - 1) * safePageSize
+  };
+}
+
+async function buildTripListResponse(
+  trips: Array<{
+    id: string;
+    trainId: string;
+    train: { code: string; name: string };
+    origin: string;
+    destination: string;
+    originStationId: string | null;
+    destinationStationId: string | null;
+    departureTime: Date;
+    arrivalTime: Date;
+    price: { toNumber: () => number };
+    status: TripStatus;
+    delayMinutes: number;
+    delayedDepartureTime: Date | null;
+    note: string | null;
+  }>,
+  page: number,
+  pageSize: number,
+  total: number
+) {
+  const items = await Promise.all(trips.map(async (trip) => {
+    const reservedSeatIds = await getReservedSeatIds(trip.id);
+    const seatCapacity = await prisma.seat.count({
+      where: { carriage: { trainId: trip.trainId } }
+    });
+
+    return {
+      id: trip.id,
+      trainId: trip.trainId,
+      trainCode: trip.train.code,
+      trainName: trip.train.name,
+      origin: trip.origin,
+      destination: trip.destination,
+      originStationId: trip.originStationId,
+      destinationStationId: trip.destinationStationId,
+      departureTime: trip.departureTime.toISOString(),
+      arrivalTime: trip.arrivalTime.toISOString(),
+      price: trip.price.toNumber(),
+      status: trip.status,
+      delayMinutes: trip.delayMinutes,
+      delayedDepartureTime: trip.delayedDepartureTime?.toISOString() ?? null,
+      note: trip.note,
+      capacity: seatCapacity,
+      reservedSeatCount: reservedSeatIds.size,
+      availableSeatCount: Math.max(seatCapacity - reservedSeatIds.size, 0)
+    };
+  }));
+
+  return {
+    items,
+    page,
+    pageSize,
+    total,
+    totalPages: Math.max(Math.ceil(total / pageSize), 1)
+  };
+}
+
+export async function searchTrips(input: TripSearchInput) {
+  const { page, pageSize, skip } = normalizePage(input.page, input.pageSize);
+  const where: any = { status: { not: TripStatus.CANCELLED } };
+
+  if (input.departureStationId?.trim()) {
+    where.originStationId = input.departureStationId.trim();
   }
 
-  if (input.destination?.trim()) {
-    where.destination = { contains: input.destination.trim(), mode: 'insensitive' };
+  if (input.arrivalStationId?.trim()) {
+    where.destinationStationId = input.arrivalStationId.trim();
   }
 
-  if (input.date?.trim()) {
-    const range = parseVnDateInputToUtcRange(input.date);
-    if (range) {
-      where.departureTime = { gte: range.start, lte: range.end };
-    }
+  const fromDate = input.fromDate?.trim() || input.date?.trim();
+  const toDate = input.toDate?.trim() || input.date?.trim();
+
+  if (fromDate || toDate) {
+    const fromRange = fromDate ? parseVnDateInputToUtcRange(fromDate) : null;
+    const toRange = toDate ? parseVnDateInputToUtcRange(toDate) : null;
+
+    where.departureTime = {
+      gte: fromRange?.start,
+      lte: toRange?.end
+    };
   }
 
   if (!where.departureTime) {
-    where.departureTime = { gte: startOfDay(now) };
+    where.departureTime = { gte: startOfDay(new Date()) };
   }
 
   const total = await prisma.trip.count({ where });
-  const totalPages = Math.max(Math.ceil(total / pageSize), 1);
-  const safePage = Math.min(page, totalPages);
-  const skip = (safePage - 1) * pageSize;
-
   const trips = await prisma.trip.findMany({
     where,
     include: { train: true },
@@ -49,51 +124,154 @@ export async function searchTrips(input: {
     take: pageSize
   });
 
-  const items = await Promise.all(
-    trips.map(async (trip: {
-      id: string;
-      trainId: string;
-      origin: string;
-      destination: string;
-      departureTime: Date;
-      arrivalTime: Date;
-      price: { toNumber: () => number };
-      status: string;
-      delayMinutes: number;
-      note: string | null;
-      train: { code: string; name: string };
-    }) => {
-      const reservedSeatIds = await getReservedSeatIds(trip.id);
-      const seatCapacity = await prisma.seat.count({
-        where: { carriage: { trainId: trip.trainId } }
-      });
+  return buildTripListResponse(trips, page, pageSize, total);
+}
 
-      return {
-        id: trip.id,
-        trainId: trip.trainId,
-        trainCode: trip.train.code,
-        trainName: trip.train.name,
-        origin: trip.origin,
-        destination: trip.destination,
-        departureTime: trip.departureTime.toISOString(),
-        arrivalTime: trip.arrivalTime.toISOString(),
-        price: trip.price.toNumber(),
-        status: trip.status,
-        delayMinutes: trip.delayMinutes,
-        note: trip.note,
-        capacity: seatCapacity,
-        reservedSeatCount: reservedSeatIds.size,
-        availableSeatCount: Math.max(seatCapacity - reservedSeatIds.size, 0)
-      };
+export async function getTodayTrips(input: { page?: number | undefined; pageSize?: number | undefined }) {
+  const { page, pageSize, skip } = normalizePage(input.page, input.pageSize);
+  const todayStart = getTodayInVN();
+  const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60_000 - 1);
+
+  const where = {
+    departureTime: {
+      gte: todayStart,
+      lte: todayEnd
+    },
+    status: { not: TripStatus.CANCELLED }
+  };
+
+  const [total, trips] = await Promise.all([
+    prisma.trip.count({ where }),
+    prisma.trip.findMany({
+      where,
+      include: {
+        train: true,
+        originStation: true,
+        destinationStation: true
+      },
+      orderBy: { departureTime: 'asc' },
+      skip,
+      take: pageSize
     })
-  );
+  ]);
+
+  const items = await Promise.all(trips.map(async (trip) => {
+    const reservedSeatIds = await getReservedSeatIds(trip.id);
+    const seatCapacity = await prisma.seat.count({
+      where: { carriage: { trainId: trip.trainId } }
+    });
+
+    return {
+      id: trip.id,
+      trainId: trip.trainId,
+      trainCode: trip.train.code,
+      trainName: trip.train.name,
+      origin: trip.origin,
+      destination: trip.destination,
+      originStationId: trip.originStationId,
+      destinationStationId: trip.destinationStationId,
+      departureTime: trip.departureTime.toISOString(),
+      departureTimeVN: toVNTimeString(trip.departureTime),
+      arrivalTime: trip.arrivalTime.toISOString(),
+      arrivalTimeVN: toVNTimeString(trip.arrivalTime),
+      price: trip.price.toNumber(),
+      capacity: seatCapacity,
+      reservedSeatCount: reservedSeatIds.size,
+      availableSeatCount: Math.max(seatCapacity - reservedSeatIds.size, 0)
+    };
+  }));
 
   return {
+    data: items,
     items,
-    page: safePage,
+    page,
     pageSize,
     total,
-    totalPages
+    totalPages: Math.max(1, Math.ceil(total / pageSize))
+  };
+}
+
+export async function searchTripsByStationAndDate(input: {
+  departureStationId?: string | undefined;
+  arrivalStationId?: string | undefined;
+  fromDate: string;
+  toDate: string;
+  page?: number | undefined;
+  pageSize?: number | undefined;
+}) {
+  if (input.departureStationId && input.arrivalStationId && input.departureStationId === input.arrivalStationId) {
+    throw new Error('Ga đi và ga đến phải khác nhau');
+  }
+
+  if (!isValidDateString(input.fromDate) || !isValidDateString(input.toDate)) {
+    throw new Error('Invalid date format. Expected YYYY-MM-DD');
+  }
+
+  const { page, pageSize, skip } = normalizePage(input.page, input.pageSize);
+  const where: any = {
+    departureTime: {
+      gte: getStartOfDayUTC7(input.fromDate),
+      lte: getEndOfDayUTC7(input.toDate)
+    },
+    status: { not: TripStatus.CANCELLED }
+  };
+
+  if (input.departureStationId) {
+    where.originStationId = input.departureStationId;
+  }
+
+  if (input.arrivalStationId) {
+    where.destinationStationId = input.arrivalStationId;
+  }
+
+  const [total, trips] = await Promise.all([
+    prisma.trip.count({ where }),
+    prisma.trip.findMany({
+      where,
+      include: {
+        train: true,
+        originStation: true,
+        destinationStation: true
+      },
+      orderBy: { departureTime: 'asc' },
+      skip,
+      take: pageSize
+    })
+  ]);
+
+  const items = await Promise.all(trips.map(async (trip) => {
+    const reservedSeatIds = await getReservedSeatIds(trip.id);
+    const seatCapacity = await prisma.seat.count({
+      where: { carriage: { trainId: trip.trainId } }
+    });
+
+    return {
+      id: trip.id,
+      trainId: trip.trainId,
+      trainCode: trip.train.code,
+      trainName: trip.train.name,
+      origin: trip.origin,
+      destination: trip.destination,
+      originStationId: trip.originStationId,
+      destinationStationId: trip.destinationStationId,
+      departureTime: trip.departureTime.toISOString(),
+      departureTimeVN: toVNTimeString(trip.departureTime),
+      arrivalTime: trip.arrivalTime.toISOString(),
+      arrivalTimeVN: toVNTimeString(trip.arrivalTime),
+      price: trip.price.toNumber(),
+      capacity: seatCapacity,
+      reservedSeatCount: reservedSeatIds.size,
+      availableSeatCount: Math.max(seatCapacity - reservedSeatIds.size, 0)
+    };
+  }));
+
+  return {
+    data: items,
+    items,
+    page,
+    pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / pageSize))
   };
 }
 
@@ -158,18 +336,14 @@ export async function getTripDetail(tripId: string, now = new Date()) {
       price: trip.price.toNumber(),
       status: trip.status,
       delayMinutes: trip.delayMinutes,
+      delayedDepartureTime: trip.delayedDepartureTime?.toISOString() ?? null,
       note: trip.note
     },
-    carriages: trip.train.carriages.map((carriage: {
-      id: string;
-      code: string;
-      orderIndex: number;
-      seats: Array<{ id: string; code: string; orderIndex: number; status: string }>;
-    }) => ({
+    carriages: trip.train.carriages.map((carriage) => ({
       id: carriage.id,
       code: carriage.code,
       orderIndex: carriage.orderIndex,
-      seats: carriage.seats.map((seat: { id: string; code: string; orderIndex: number; status: string }) => ({
+      seats: carriage.seats.map((seat) => ({
         id: seat.id,
         code: seat.code,
         orderIndex: seat.orderIndex,
@@ -178,6 +352,37 @@ export async function getTripDetail(tripId: string, now = new Date()) {
       }))
     })),
     activeBookings: trip.bookings.length
+  };
+}
+
+export async function getTripSeatsDetail(tripId: string) {
+  const detail = await getTripDetail(tripId);
+  if (!detail) {
+    return null;
+  }
+
+  return {
+    trip: {
+      id: detail.trip.id,
+      trainCode: detail.trip.trainCode,
+      trainName: detail.trip.trainName,
+      origin: detail.trip.origin,
+      destination: detail.trip.destination,
+      departureTime: detail.trip.departureTime,
+      departureTimeVN: toVNTimeString(new Date(detail.trip.departureTime)),
+      delayedDepartureTime: detail.trip.delayedDepartureTime,
+      arrivalTime: detail.trip.arrivalTime,
+      arrivalTimeVN: toVNTimeString(new Date(detail.trip.arrivalTime)),
+      price: detail.trip.price
+    },
+    carriages: detail.carriages.map((carriage: any) => ({
+      ...carriage,
+      type: carriage.type ?? 'SOFT_SEAT',
+      seats: carriage.seats.map((seat: any) => ({
+        ...seat,
+        reserved: !seat.available
+      }))
+    }))
   };
 }
 
@@ -192,19 +397,7 @@ export async function listTripsForAdmin() {
     orderBy: { departureTime: 'asc' }
   });
 
-  return trips.map((trip: {
-    id: string;
-    trainId: string;
-    origin: string;
-    destination: string;
-    departureTime: Date;
-    arrivalTime: Date;
-    price: { toNumber: () => number };
-    status: string;
-    delayMinutes: number;
-    note: string | null;
-    train: { code: string };
-  }) => ({
+  return trips.map((trip) => ({
     id: trip.id,
     trainId: trip.trainId,
     trainCode: trip.train.code,
@@ -246,30 +439,27 @@ export async function getReservedSeatIds(tripId: string, now = new Date()) {
 }
 
 export async function listStations(keyword?: string | undefined) {
-  const normalizedKeyword = keyword?.trim().toLowerCase();
-  const [origins, destinations] = await Promise.all([
-    prisma.trip.findMany({ select: { origin: true }, distinct: ['origin'] }),
-    prisma.trip.findMany({ select: { destination: true }, distinct: ['destination'] })
-  ]);
-
-  const merged = new Set<string>();
-  for (const item of origins) {
-    merged.add(item.origin);
-  }
-  for (const item of destinations) {
-    merged.add(item.destination);
-  }
-
-  const stations = Array.from(merged)
-    .filter((name) => {
-      if (!normalizedKeyword) {
-        return true;
-      }
-      return name.toLowerCase().includes(normalizedKeyword);
-    })
-    .sort((a, b) => a.localeCompare(b, 'vi'));
-
+  const normalizedKeyword = keyword?.trim();
+  
+  const stations = await prisma.station.findMany({
+    where: normalizedKeyword
+      ? {
+          OR: [
+            { name: { contains: normalizedKeyword, mode: 'insensitive' } },
+            { code: { contains: normalizedKeyword.toUpperCase(), mode: 'insensitive' } },
+            { city: { contains: normalizedKeyword, mode: 'insensitive' } }
+          ]
+        }
+      : undefined,
+    orderBy: [{ name: 'asc' }]
+  });
   return {
-    items: stations
+    items: stations.map((station) => ({
+      id: station.id,
+      code: station.code,
+      name: station.name,
+      city: station.city,
+      label: `${station.name} (${station.code})`
+    }))
   };
 }

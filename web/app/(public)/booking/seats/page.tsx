@@ -5,8 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { Breadcrumb } from '@/components/shared/breadcrumb';
 import { SeatMap } from '@/components/public/seat-map';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AlertCircle, Check } from 'lucide-react';
+import { AlertCircle, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { VN } from '@/lib/translations';
 import { Carriage, Seat, Trip } from '@/lib/types';
 import { getTripDetail, mapCarriagesToUi, mapSeatsForCarriage } from '@/lib/api';
@@ -20,10 +19,12 @@ function BookingSeatsPageContent() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [carriages, setCarriages] = useState<Carriage[]>([]);
   const [carriageSeatsById, setCarriageSeatsById] = useState<Record<string, Seat[]>>({});
-  const [selectedCarriage, setSelectedCarriage] = useState('');
   const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [carriageGroupIndex, setCarriageGroupIndex] = useState(0);
+
+  const CARRIAGES_PER_GROUP = 5;
 
   useEffect(() => {
     let active = true;
@@ -52,7 +53,6 @@ function BookingSeatsPageContent() {
         setTrip(detail.trip);
         setCarriages(uiCarriages);
         setCarriageSeatsById(seatMapByCarriage);
-        setSelectedCarriage(uiCarriages[0]?.id ?? '');
       } catch (unknownError) {
         if (!active) return;
         const message = unknownError instanceof Error ? unknownError.message : 'Không thể tải sơ đồ ghế.';
@@ -71,9 +71,16 @@ function BookingSeatsPageContent() {
     };
   }, [tripId]);
 
-  const carriageSeats = useMemo(() => {
-    return carriageSeatsById[selectedCarriage] ?? [];
-  }, [carriageSeatsById, selectedCarriage]);
+  // Calculate visible carriages for current group
+  const visibleCarriages = useMemo(() => {
+    const start = carriageGroupIndex * CARRIAGES_PER_GROUP;
+    const end = start + CARRIAGES_PER_GROUP;
+    return carriages.slice(start, end);
+  }, [carriages, carriageGroupIndex]);
+
+  const totalGroups = Math.ceil(carriages.length / CARRIAGES_PER_GROUP);
+  const canPrevious = carriageGroupIndex > 0;
+  const canNext = carriageGroupIndex < totalGroups - 1;
 
   const handleSeatSelect = (seatId: string) => {
     setSelectedSeats(prev => {
@@ -157,39 +164,104 @@ function BookingSeatsPageContent() {
             </div>
           </div>
 
-          {/* Carriage Tabs */}
-          <Tabs value={selectedCarriage} onValueChange={setSelectedCarriage}>
-            <TabsList className="grid w-full grid-cols-4">
-              {carriages.map(carriage => (
-                <TabsTrigger key={carriage.id} value={carriage.id}>
-                  {carriage.type === 'economy'
-                    ? '💼 Eco'
-                    : carriage.type === 'business'
-                      ? '🚢 Bus'
-                      : '👑 1st'}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+          {/* Carriage Group Navigation */}
+          <div className="mb-6 flex items-center justify-between gap-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCarriageGroupIndex(prev => Math.max(prev - 1, 0))}
+              disabled={!canPrevious}
+              className="flex items-center gap-2"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Toa trước
+            </Button>
+            <div className="text-sm text-gray-600 text-center">
+              Toa {carriageGroupIndex * CARRIAGES_PER_GROUP + 1} - {Math.min((carriageGroupIndex + 1) * CARRIAGES_PER_GROUP, carriages.length)} / {carriages.length}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCarriageGroupIndex(prev => prev + 1)}
+              disabled={!canNext}
+              className="flex items-center gap-2"
+            >
+              Toa tiếp
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
 
-            {carriages.map(carriage => (
-              <TabsContent key={carriage.id} value={carriage.id} className="mt-8">
-                <div className="bg-white rounded-lg border border-gray-200 p-8">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2 capitalize">
-                    Toa {carriage.number} - {carriage.type.replace('_', ' ')}
-                  </h3>
-                  <p className="text-sm text-gray-600 mb-6">
-                    {carriage.totalSeats} ghế • Hệ số giá: {carriage.priceMultiplier}x
-                  </p>
+          {/* Visible Carriages Grid - 5 columns */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6 mb-8">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+              {visibleCarriages.map(carriage => {
+                const carriageSeats = carriageSeatsById[carriage.id] ?? [];
+                const selectedCount = selectedSeats.filter(id =>
+                  carriageSeats.some(seat => seat.id === id)
+                ).length;
+                const totalSeats = carriageSeats.length;
+                const availableSeats = carriageSeats.filter(s => s.status === 'available').length;
 
-                  <SeatMap
-                    seats={carriageSeats}
-                    selectedSeats={selectedSeats}
-                    onSeatSelect={handleSeatSelect}
-                  />
-                </div>
-              </TabsContent>
-            ))}
-          </Tabs>
+                return (
+                  <div
+                    key={carriage.id}
+                    className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition cursor-pointer"
+                    onClick={() => {
+                      // Toggle carriage display or show carriage details
+                    }}
+                  >
+                    <div className="text-center mb-3">
+                      <div className="text-xl font-bold text-gray-900 mb-1">Toa {carriage.number}</div>
+                      <div className="text-xs text-gray-600 mb-2">{carriage.type.replace('_', ' ')}</div>
+                      <div className="text-sm font-semibold text-blue-600">{selectedCount}/{totalSeats}</div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 mb-3">
+                      {carriageSeats.slice(0, 9).map(seat => {
+                        const isSelected = selectedSeats.includes(seat.id);
+                        const statusColor = isSelected ? 'bg-blue-600' : seat.status === 'available' ? 'bg-white border border-gray-300' : 'bg-gray-400';
+                        return (
+                          <button
+                            key={seat.id}
+                            className={`w-6 h-6 rounded text-xs font-bold ${statusColor} ${seat.status !== 'available' && !isSelected ? 'cursor-not-allowed' : 'hover:bg-blue-100'}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (seat.status === 'available' || seat.status === 'selected') {
+                                handleSeatSelect(seat.id);
+                              }
+                            }}
+                            disabled={seat.status !== 'available' && !isSelected}
+                            title={`${seat.seatNumber}`}
+                          >
+                            {isSelected ? '✓' : ''}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="text-xs text-gray-600 text-center">
+                      {availableSeats} / {totalSeats} còn trống
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Detailed Seat Map for Selected Carriage */}
+          {visibleCarriages.length > 0 && (
+            <div className="bg-white rounded-lg border border-gray-200 p-8">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                Sơ đồ chi tiết - Toa {visibleCarriages[0]!.number}
+              </h3>
+              <p className="text-sm text-gray-600 mb-6">
+                Nhấp vào toa để xem chi tiết sơ đồ ghế
+              </p>
+              <SeatMap
+                seats={carriageSeatsById[visibleCarriages[0]!.id] ?? []}
+                selectedSeats={selectedSeats}
+                onSeatSelect={handleSeatSelect}
+              />
+            </div>
+          )}
 
           {/* Info Box */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-6 flex gap-3">
@@ -210,7 +282,7 @@ function BookingSeatsPageContent() {
             <div className="bg-white rounded-lg border border-gray-200 p-6">
               <h3 className="text-sm font-medium text-gray-700 mb-3">{VN.booking.selectSeats}</h3>
               {selectedSeats.length > 0 ? (
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-48 overflow-y-auto">
                   {selectedSeatObjects.map(seat => (
                     <div key={seat.id} className="flex justify-between text-sm">
                       <span className="text-gray-600">Ghế {seat.seatNumber}</span>
@@ -224,7 +296,7 @@ function BookingSeatsPageContent() {
             </div>
 
             {/* Pricing */}
-            <div className="space-y-2 mb-6 pb-6 border-b border-gray-200">
+            <div className="space-y-2 mb-6 pb-6 border-b border-gray-200 mt-4">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Tạm tính</span>
                 <span className="font-semibold text-gray-900">{formatCurrencyVND(totalPrice)}</span>
@@ -248,7 +320,7 @@ function BookingSeatsPageContent() {
               <Button
                 onClick={() =>
                   router.push(
-                    `/booking/checkout?tripId=${tripId}&carriage=${selectedCarriage}&seats=${selectedSeats.join(',')}&total=${Math.round(totalPrice * 1.1)}`
+                    `/booking/checkout?tripId=${tripId}&seats=${selectedSeats.join(',')}&total=${Math.round(totalPrice * 1.1)}`
                   )
                 }
                 disabled={selectedSeats.length === 0}

@@ -1,27 +1,52 @@
-import { Router } from 'express';
+import { Request, Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../lib/asyncHandler';
 import { getAuthUserFromRequest } from '../lib/auth';
 import { AppError } from '../lib/errors';
+import { getReports, setTripStatus } from '../services/adminService';
+import { listRecentBookings } from '../services/adminService';
 import {
-  bulkCreateSeats,
-  createCarriage,
-  createTrain,
-  createTrip,
-  deleteCarriage,
-  deleteSeat,
-  deleteTrain,
-  getReports,
-  listAdminTickets,
-  listRecentBookings,
-  listTrains,
-  removeTrip,
-  setTripStatus,
-  updateCarriage,
-  updateSeat,
-  updateTrain,
-  updateTrip
-} from '../services/adminService';
+  createBookingAdmin,
+  createCarriageAdmin,
+  createSeatAdmin,
+  createStationAdmin,
+  createTicketAdmin,
+  createTrainAdmin,
+  createTripAdmin,
+  createUserAdmin,
+  deleteBookingAdmin,
+  deleteCarriageAdmin,
+  deleteSeatAdmin,
+  deleteStationAdmin,
+  deleteTicketAdmin,
+  deleteTrainAdmin,
+  deleteTripAdmin,
+  deleteUserAdmin,
+  getBookingByIdAdmin,
+  getCarriageByIdAdmin,
+  getSeatByIdAdmin,
+  getStationByIdAdmin,
+  getTicketByIdAdmin,
+  getTrainByIdAdmin,
+  getTripByIdAdmin,
+  getUserByIdAdmin,
+  listBookingsAdmin,
+  listCarriagesAdmin,
+  listSeatsAdmin,
+  listStationsAdmin,
+  listTicketsAdmin,
+  listTrainsAdmin,
+  listTripsAdmin,
+  listUsersAdmin,
+  updateBookingAdmin,
+  updateCarriageAdmin,
+  updateSeatAdmin,
+  updateStationAdmin,
+  updateTicketAdmin,
+  updateTrainAdmin,
+  updateTripAdmin,
+  updateUserAdmin
+} from '../services/adminCrudService';
 
 export const adminRoutes = Router();
 
@@ -38,116 +63,167 @@ adminRoutes.use((request, _response, next) => {
   next();
 });
 
-adminRoutes.get('/reports', asyncHandler(async (_request, response) => {
-  response.json(await getReports());
+function getPaginationQuery(request: Request) {
+  const page = typeof request.query.page === 'string' ? Number.parseInt(request.query.page, 10) : undefined;
+  const pageSize = typeof request.query.pageSize === 'string' ? Number.parseInt(request.query.pageSize, 10) : undefined;
+  return { page, pageSize };
+}
+
+function getIdParam(request: { params: Record<string, string | string[] | undefined> }, key: string) {
+  const value = request.params[key];
+  if (typeof value !== 'string') {
+    throw new AppError(`Thiếu ${key}.`, 400);
+  }
+  return value;
+}
+
+const stationPayloadSchema = z.object({
+  code: z.string().min(1),
+  name: z.string().min(1),
+  city: z.string().min(1)
+});
+
+adminRoutes.get('/stations', asyncHandler(async (request, response) => {
+  response.json(await listStationsAdmin(getPaginationQuery(request)));
 }));
 
-adminRoutes.get('/trains', asyncHandler(async (_request, response) => {
-  response.json(await listTrains());
+adminRoutes.get('/stations/:id', asyncHandler(async (request, response) => {
+  response.json(await getStationByIdAdmin(getIdParam(request, 'id')));
 }));
 
-adminRoutes.get('/tickets', asyncHandler(async (_request, response) => {
-  response.json(await listAdminTickets());
+adminRoutes.post('/stations', asyncHandler(async (request, response) => {
+  const payload = stationPayloadSchema.parse(request.body);
+  response.status(201).json(await createStationAdmin(payload));
 }));
 
-adminRoutes.get('/recent-bookings', asyncHandler(async (request, response) => {
-  const limit = typeof request.query.limit === 'string' ? Number.parseInt(request.query.limit, 10) : undefined;
-  response.json(await listRecentBookings(Number.isFinite(limit) ? Number(limit) : 8));
+adminRoutes.put('/stations/:id', asyncHandler(async (request, response) => {
+  const payload = stationPayloadSchema.partial().parse(request.body);
+  response.json(await updateStationAdmin(getIdParam(request, 'id'), payload));
+}));
+
+adminRoutes.delete('/stations/:id', asyncHandler(async (request, response) => {
+  response.json(await deleteStationAdmin(getIdParam(request, 'id')));
+}));
+
+const trainPayloadSchema = z.object({
+  code: z.string().min(1),
+  name: z.string().min(1)
+});
+
+adminRoutes.get('/trains', asyncHandler(async (request, response) => {
+  response.json(await listTrainsAdmin(getPaginationQuery(request)));
+}));
+
+adminRoutes.get('/trains/:id', asyncHandler(async (request, response) => {
+  response.json(await getTrainByIdAdmin(getIdParam(request, 'id')));
 }));
 
 adminRoutes.post('/trains', asyncHandler(async (request, response) => {
-  const payload = z.object({ code: z.string().min(2), name: z.string().min(2) }).parse(request.body);
-  response.status(201).json(await createTrain(payload));
+  const payload = trainPayloadSchema.parse(request.body);
+  response.status(201).json(await createTrainAdmin(payload));
 }));
 
 adminRoutes.put('/trains/:id', asyncHandler(async (request, response) => {
-  const payload = z.object({ code: z.string().min(2).optional(), name: z.string().min(2).optional() }).parse(request.body);
-  const id = typeof request.params.id === 'string' ? request.params.id : undefined;
-  if (!id) throw new AppError('Thiếu id train.', 400);
-  response.json(await updateTrain(id, payload));
+  const payload = trainPayloadSchema.partial().parse(request.body);
+  response.json(await updateTrainAdmin(getIdParam(request, 'id'), payload));
 }));
 
 adminRoutes.delete('/trains/:id', asyncHandler(async (request, response) => {
-  const id = typeof request.params.id === 'string' ? request.params.id : undefined;
-  if (!id) throw new AppError('Thiếu id train.', 400);
-  response.json(await deleteTrain(id));
+  response.json(await deleteTrainAdmin(getIdParam(request, 'id')));
 }));
 
-adminRoutes.post('/trains/:trainId/carriages', asyncHandler(async (request, response) => {
-  const payload = z.object({ code: z.string().min(1), orderIndex: z.number().int().positive() }).parse(request.body);
-  const trainId = typeof request.params.trainId === 'string' ? request.params.trainId : undefined;
-  if (!trainId) throw new AppError('Thiếu trainId.', 400);
-  response.status(201).json(await createCarriage({ trainId, ...payload }));
+const carriagePayloadSchema = z.object({
+  trainId: z.string().min(1),
+  code: z.string().min(1),
+  orderIndex: z.number().int().positive(),
+  type: z.enum(['SOFT_SEAT', 'HARD_SEAT', 'SLEEPER'])
+});
+
+adminRoutes.get('/carriages', asyncHandler(async (request, response) => {
+  const trainId = typeof request.query.trainId === 'string' ? request.query.trainId : undefined;
+  response.json(await listCarriagesAdmin({ ...getPaginationQuery(request), trainId }));
+}));
+
+adminRoutes.get('/carriages/:id', asyncHandler(async (request, response) => {
+  response.json(await getCarriageByIdAdmin(getIdParam(request, 'id')));
+}));
+
+adminRoutes.post('/carriages', asyncHandler(async (request, response) => {
+  const payload = carriagePayloadSchema.parse(request.body);
+  response.status(201).json(await createCarriageAdmin(payload));
 }));
 
 adminRoutes.put('/carriages/:id', asyncHandler(async (request, response) => {
-  const payload = z.object({ code: z.string().min(1).optional(), orderIndex: z.number().int().positive().optional() }).parse(request.body);
-  const id = typeof request.params.id === 'string' ? request.params.id : undefined;
-  if (!id) throw new AppError('Thiếu id carriage.', 400);
-  response.json(await updateCarriage(id, payload));
+  const payload = carriagePayloadSchema.pick({ code: true, orderIndex: true, type: true }).partial().parse(request.body);
+  response.json(await updateCarriageAdmin(getIdParam(request, 'id'), payload));
 }));
 
 adminRoutes.delete('/carriages/:id', asyncHandler(async (request, response) => {
-  const id = typeof request.params.id === 'string' ? request.params.id : undefined;
-  if (!id) throw new AppError('Thiếu id carriage.', 400);
-  response.json(await deleteCarriage(id));
+  response.json(await deleteCarriageAdmin(getIdParam(request, 'id')));
 }));
 
-adminRoutes.post('/carriages/:carriageId/seats', asyncHandler(async (request, response) => {
-  const payload = z.object({ prefix: z.string().min(1).optional(), count: z.number().int().positive().max(100) }).parse(request.body);
-  const carriageId = typeof request.params.carriageId === 'string' ? request.params.carriageId : undefined;
-  if (!carriageId) throw new AppError('Thiếu carriageId.', 400);
-  response.status(201).json(await bulkCreateSeats({ carriageId, ...payload }));
+const seatPayloadSchema = z.object({
+  carriageId: z.string().min(1),
+  code: z.string().min(1),
+  orderIndex: z.number().int().positive(),
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional()
+});
+
+adminRoutes.get('/seats', asyncHandler(async (request, response) => {
+  const carriageId = typeof request.query.carriageId === 'string' ? request.query.carriageId : undefined;
+  response.json(await listSeatsAdmin({ ...getPaginationQuery(request), carriageId }));
+}));
+
+adminRoutes.get('/seats/:id', asyncHandler(async (request, response) => {
+  response.json(await getSeatByIdAdmin(getIdParam(request, 'id')));
+}));
+
+adminRoutes.post('/seats', asyncHandler(async (request, response) => {
+  const payload = seatPayloadSchema.parse(request.body);
+  response.status(201).json(await createSeatAdmin(payload));
 }));
 
 adminRoutes.put('/seats/:id', asyncHandler(async (request, response) => {
-  const payload = z.object({ code: z.string().min(1).optional(), status: z.enum(['ACTIVE', 'INACTIVE']).optional() }).parse(request.body);
-  const id = typeof request.params.id === 'string' ? request.params.id : undefined;
-  if (!id) throw new AppError('Thiếu id seat.', 400);
-  response.json(await updateSeat(id, payload));
+  const payload = seatPayloadSchema.pick({ code: true, orderIndex: true, status: true }).partial().parse(request.body);
+  response.json(await updateSeatAdmin(getIdParam(request, 'id'), payload));
 }));
 
 adminRoutes.delete('/seats/:id', asyncHandler(async (request, response) => {
-  const id = typeof request.params.id === 'string' ? request.params.id : undefined;
-  if (!id) throw new AppError('Thiếu id seat.', 400);
-  response.json(await deleteSeat(id));
+  response.json(await deleteSeatAdmin(getIdParam(request, 'id')));
+}));
+
+const tripPayloadSchema = z.object({
+  trainId: z.string().min(1),
+  originStationId: z.string().min(1),
+  destinationStationId: z.string().min(1),
+  departureTime: z.string().datetime(),
+  arrivalTime: z.string().datetime(),
+  price: z.number().positive(),
+  status: z.enum(['ON_TIME', 'DELAYED', 'CANCELLED']).optional(),
+  delayMinutes: z.number().int().nonnegative().optional(),
+  note: z.string().nullable().optional()
+});
+
+adminRoutes.get('/trips', asyncHandler(async (request, response) => {
+  response.json(await listTripsAdmin(getPaginationQuery(request)));
+}));
+
+adminRoutes.get('/trips/:id', asyncHandler(async (request, response) => {
+  response.json(await getTripByIdAdmin(getIdParam(request, 'id')));
 }));
 
 adminRoutes.post('/trips', asyncHandler(async (request, response) => {
-  const payload = z.object({
-    trainId: z.string().min(1),
-    origin: z.string().min(1),
-    destination: z.string().min(1),
-    departureTime: z.string().datetime(),
-    arrivalTime: z.string().datetime(),
-    price: z.number().positive()
-  }).parse(request.body);
-
-  response.status(201).json(await createTrip(payload));
+  const payload = tripPayloadSchema.parse(request.body);
+  response.status(201).json(await createTripAdmin(payload));
 }));
 
 adminRoutes.put('/trips/:id', asyncHandler(async (request, response) => {
-  const payload = z.object({
-    trainId: z.string().optional(),
-    origin: z.string().optional(),
-    destination: z.string().optional(),
-    departureTime: z.string().datetime().optional(),
-    arrivalTime: z.string().datetime().optional(),
-    price: z.number().positive().optional(),
-    status: z.enum(['ON_TIME', 'DELAYED', 'CANCELLED']).optional(),
-    delayMinutes: z.number().int().nonnegative().optional(),
-    note: z.string().nullable().optional()
-  }).parse(request.body);
-
-  const id = typeof request.params.id === 'string' ? request.params.id : undefined;
-  if (!id) throw new AppError('Thiếu id trip.', 400);
-  response.json(await updateTrip(id, payload));
+  const payload = tripPayloadSchema.partial().parse(request.body);
+  response.json(await updateTripAdmin(getIdParam(request, 'id'), payload));
 }));
 
 adminRoutes.delete('/trips/:id', asyncHandler(async (request, response) => {
-  const id = typeof request.params.id === 'string' ? request.params.id : undefined;
-  if (!id) throw new AppError('Thiếu id trip.', 400);
-  response.json(await removeTrip(id));
+  response.json(await deleteTripAdmin(getIdParam(request, 'id')));
 }));
 
 adminRoutes.post('/trips/:id/status', asyncHandler(async (request, response) => {
@@ -161,7 +237,112 @@ adminRoutes.post('/trips/:id/status', asyncHandler(async (request, response) => 
     throw new AppError('Delay phải có số phút delay.', 400);
   }
 
-  const id = typeof request.params.id === 'string' ? request.params.id : undefined;
-  if (!id) throw new AppError('Thiếu id trip.', 400);
-  response.json(await setTripStatus(id, payload));
+  response.json(await setTripStatus(getIdParam(request, 'id'), payload));
+}));
+
+const bookingPayloadSchema = z.object({
+  userId: z.string().min(1),
+  tripId: z.string().min(1),
+  seatIds: z.array(z.string().min(1)).min(1),
+  contactEmail: z.string().email(),
+  markAsPaid: z.boolean().optional()
+});
+
+adminRoutes.get('/bookings', asyncHandler(async (request, response) => {
+  response.json(await listBookingsAdmin(getPaginationQuery(request)));
+}));
+
+adminRoutes.get('/bookings/:id', asyncHandler(async (request, response) => {
+  response.json(await getBookingByIdAdmin(getIdParam(request, 'id')));
+}));
+
+adminRoutes.post('/bookings', asyncHandler(async (request, response) => {
+  const payload = bookingPayloadSchema.parse(request.body);
+  response.status(201).json(await createBookingAdmin(payload));
+}));
+
+adminRoutes.put('/bookings/:id', asyncHandler(async (request, response) => {
+  const payload = z.object({
+    status: z.enum(['HOLDING', 'PAID', 'EXPIRED', 'CANCELLED', 'REFUNDED']).optional(),
+    contactEmail: z.string().email().optional()
+  }).parse(request.body);
+
+  response.json(await updateBookingAdmin(getIdParam(request, 'id'), payload));
+}));
+
+adminRoutes.delete('/bookings/:id', asyncHandler(async (request, response) => {
+  response.json(await deleteBookingAdmin(getIdParam(request, 'id')));
+}));
+
+const ticketPayloadSchema = z.object({
+  bookingId: z.string().min(1),
+  ticketNumber: z.string().min(1).optional(),
+  qrDataUrl: z.string().min(1),
+  eTicketUrl: z.string().url().optional(),
+  invoiceNumber: z.string().min(1).optional()
+});
+
+adminRoutes.get('/tickets', asyncHandler(async (request, response) => {
+  response.json(await listTicketsAdmin(getPaginationQuery(request)));
+}));
+
+adminRoutes.get('/tickets/:id', asyncHandler(async (request, response) => {
+  response.json(await getTicketByIdAdmin(getIdParam(request, 'id')));
+}));
+
+adminRoutes.post('/tickets', asyncHandler(async (request, response) => {
+  const payload = ticketPayloadSchema.parse(request.body);
+  response.status(201).json(await createTicketAdmin(payload));
+}));
+
+adminRoutes.put('/tickets/:id', asyncHandler(async (request, response) => {
+  const payload = z.object({
+    eTicketUrl: z.string().url().nullable().optional(),
+    invoiceNumber: z.string().nullable().optional(),
+    qrDataUrl: z.string().min(1).optional()
+  }).parse(request.body);
+
+  response.json(await updateTicketAdmin(getIdParam(request, 'id'), payload));
+}));
+
+adminRoutes.delete('/tickets/:id', asyncHandler(async (request, response) => {
+  response.json(await deleteTicketAdmin(getIdParam(request, 'id')));
+}));
+
+const userPayloadSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  password: z.string().min(6).optional(),
+  role: z.enum(['USER', 'ADMIN']).optional()
+});
+
+adminRoutes.get('/users', asyncHandler(async (request, response) => {
+  response.json(await listUsersAdmin(getPaginationQuery(request)));
+}));
+
+adminRoutes.get('/users/:id', asyncHandler(async (request, response) => {
+  response.json(await getUserByIdAdmin(getIdParam(request, 'id')));
+}));
+
+adminRoutes.post('/users', asyncHandler(async (request, response) => {
+  const payload = userPayloadSchema.parse(request.body);
+  response.status(201).json(await createUserAdmin(payload));
+}));
+
+adminRoutes.put('/users/:id', asyncHandler(async (request, response) => {
+  const payload = userPayloadSchema.partial().parse(request.body);
+  response.json(await updateUserAdmin(getIdParam(request, 'id'), payload));
+}));
+
+adminRoutes.delete('/users/:id', asyncHandler(async (request, response) => {
+  response.json(await deleteUserAdmin(getIdParam(request, 'id')));
+}));
+
+adminRoutes.get('/reports', asyncHandler(async (_request, response) => {
+  response.json(await getReports());
+}));
+
+adminRoutes.get('/recent-bookings', asyncHandler(async (request, response) => {
+  const limit = typeof request.query.limit === 'string' ? Number.parseInt(request.query.limit, 10) : undefined;
+  response.json(await listRecentBookings(limit));
 }));

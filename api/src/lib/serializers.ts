@@ -17,6 +17,7 @@ export function serializeTrip(trip: Trip & { train?: Train | null }) {
     price: moneyToNumber(trip.price),
     status: trip.status,
     delayMinutes: trip.delayMinutes,
+    delayedDepartureTime: trip.delayedDepartureTime?.toISOString() ?? null,
     note: trip.note
   };
 }
@@ -27,12 +28,15 @@ export function serializeBooking(booking: Booking & {
   bookingSeats?: Array<{ seatId: string; seat?: Seat | null }>;
   payment: Payment | null;
   ticket: Ticket | null;
+  refunds?: Array<{ id: string; amount: { toNumber: () => number }; status: string; reason: string | null; createdAt: Date }>;
 }) {
   return {
     id: booking.id,
     code: booking.code,
     status: booking.status,
     holdExpiresAt: booking.holdExpiresAt?.toISOString() ?? null,
+    expiredAt: booking.expiredAt?.toISOString() ?? null,
+    isAffected: booking.isAffected,
     totalAmount: moneyToNumber(booking.totalAmount),
     contactEmail: booking.contactEmail,
     seatCount: booking.seatCount,
@@ -66,7 +70,14 @@ export function serializeBooking(booking: Booking & {
           issuedAt: booking.ticket.issuedAt.toISOString(),
           invoiceNumber: booking.ticket.invoiceNumber
         }
-      : null
+      : null,
+    refunds: booking.refunds?.map((refund) => ({
+      id: refund.id,
+      amount: moneyToNumber(refund.amount),
+      status: refund.status,
+      reason: refund.reason,
+      createdAt: refund.createdAt.toISOString()
+    })) ?? []
   };
 }
 

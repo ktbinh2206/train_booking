@@ -31,6 +31,9 @@ export function TripCard({ trip }: TripCardProps) {
         <div>
           <p className="text-xs text-gray-500 mb-1">Khởi hành</p>
           <p className="font-semibold text-gray-900">{trip.departureTime}</p>
+          {trip.status === 'delayed' && trip.delayedDepartureTime && (
+            <p className="text-xs text-amber-600">Dời sang: {new Date(trip.delayedDepartureTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</p>
+          )}
           <p className="text-xs text-gray-500">
             {formatDateVn(trip.date)}
           </p>

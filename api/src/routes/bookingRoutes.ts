@@ -84,16 +84,23 @@ bookingRoutes.post('/:id/pay', asyncHandler(async (request, response) => {
 }));
 
 bookingRoutes.post('/:id/cancel', asyncHandler(async (request, response) => {
-  const schema = z.object({
-    refund: z.boolean().optional().default(false),
-    reason: z.string().min(1).optional().default('Hủy booking theo yêu cầu.')
-  });
-
-  const payload = schema.parse(request.body);
+  const authUser = getAuthUserFromRequest(request);
+  const payload = z.object({
+    reason: z.string().min(1).optional()
+  }).parse(request.body ?? {});
   const id = typeof request.params.id === 'string' ? request.params.id : undefined;
   if (!id) throw new AppError('Thiếu id booking.', 400);
 
-  const booking = await cancelBooking({ bookingId: id, ...payload });
+  const targetBooking = await getBookingById(id);
+  if (!targetBooking) {
+    throw new AppError('Không tìm thấy booking.', 404);
+  }
+
+  if (authUser && authUser.role !== 'ADMIN' && targetBooking.userId !== authUser.id) {
+    throw new AppError('Bạn không có quyền hủy booking này.', 403);
+  }
+
+  const booking = await cancelBooking({ bookingId: id, reason: payload.reason });
   response.json(serializeBooking(booking));
 }));
 

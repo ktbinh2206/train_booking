@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
   Train,
+  MapPinned,
   Tickets,
   Users,
   BarChart3,
@@ -28,6 +29,11 @@ const adminNavItems = [
     icon: Train,
     label: 'Quản lý chuyến tàu',
     href: '/admin/trips',
+  },
+  {
+    icon: MapPinned,
+    label: 'Quản lý ga',
+    href: '/admin/stations',
   },
   {
     icon: Zap,

@@ -7,7 +7,7 @@ import { Breadcrumb } from '@/components/shared/breadcrumb';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { listBookings } from '@/lib/api';
+import { cancelBooking, listBookings } from '@/lib/api';
 import { VN } from '@/lib/translations';
 import { formatCurrencyVND, formatDateTimeVn } from '@/lib/utils';
 import { useAuth } from '@/components/auth/auth-provider';
@@ -23,6 +23,7 @@ export default function TicketsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [processingBookingId, setProcessingBookingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bookings, setBookings] = useState<Awaited<ReturnType<typeof listBookings>>>([]);
 
@@ -85,6 +86,23 @@ export default function TicketsPage() {
     });
   }, [bookings, searchQuery, statusFilter]);
 
+  const handleCancelBooking = async (bookingId: string) => {
+    try {
+      setProcessingBookingId(bookingId);
+      await cancelBooking(bookingId);
+      setBookings((prev) => prev.map((booking) => (
+        booking.id === bookingId
+          ? { ...booking, status: 'CANCELLED' as const }
+          : booking
+      )));
+    } catch (unknownError) {
+      const message = unknownError instanceof Error ? unknownError.message : 'Không thể hủy vé.';
+      setError(message);
+    } finally {
+      setProcessingBookingId(null);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <Breadcrumb
@@ -139,6 +157,8 @@ export default function TicketsPage() {
         <div className="space-y-4">
           {filteredBookings.map((booking) => {
             const uiStatus = mapBookingStatusToUi(booking.status);
+            const effectiveDeparture = booking.trip.delayedDepartureTime ?? booking.trip.departureTime;
+            const canCancel = uiStatus === 'confirmed' && new Date(effectiveDeparture).getTime() > Date.now();
 
             return (
               <div key={booking.id} className="bg-white rounded-lg border border-gray-200 hover:shadow-md transition overflow-hidden">
@@ -159,7 +179,10 @@ export default function TicketsPage() {
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6 pb-6 border-b border-gray-200">
                     <div>
                       <p className="text-xs text-gray-500">Khởi hành</p>
-                      <p className="text-sm font-semibold text-gray-900">{formatDateTimeVn(booking.trip.departureTime)}</p>
+                      <p className="text-sm font-semibold text-gray-900">{formatDateTimeVn(effectiveDeparture)}</p>
+                      {booking.trip.status === 'DELAYED' && booking.trip.delayedDepartureTime && (
+                        <p className="text-xs text-amber-600">Đã dời lịch chạy</p>
+                      )}
                     </div>
                     <div>
                       <p className="text-xs text-gray-500">Đến nơi</p>
@@ -194,9 +217,18 @@ export default function TicketsPage() {
                       Chia sẻ
                     </Button>
                     {uiStatus === 'confirmed' && (
-                      <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700 flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-red-600 hover:text-red-700 flex items-center gap-2"
+                        disabled={!canCancel || processingBookingId === booking.id}
+                        onClick={() => {
+                          if (!canCancel) return;
+                          void handleCancelBooking(booking.id);
+                        }}
+                      >
                         <X className="w-4 h-4" />
-                        Hủy vé
+                        {processingBookingId === booking.id ? 'Đang hủy...' : 'Hủy vé'}
                       </Button>
                     )}
                   </div>

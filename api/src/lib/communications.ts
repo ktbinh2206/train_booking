@@ -13,7 +13,7 @@ type EmailInput = {
 type NotificationInput = {
   userId: string;
   bookingId?: string;
-  type: 'BOOKING_HELD' | 'BOOKING_PAID' | 'TRIP_DELAYED' | 'TRIP_CANCELLED' | 'REFUND_ISSUED' | 'INVOICE_SENT' | 'BOOKING_EXPIRED';
+  type: 'REMINDER' | 'DELAY' | 'CANCEL' | 'HOLD_EXPIRE';
   message: string;
 };
 

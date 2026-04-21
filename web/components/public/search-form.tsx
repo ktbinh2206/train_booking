@@ -12,10 +12,13 @@ import { toLocalYmd } from '@/lib/utils';
 
 export function SearchForm() {
   const router = useRouter();
+  const [formError, setFormError] = useState('');
   const [formData, setFormData] = useState({
-    source: '',
-    destination: '',
-    date: '',
+    departureStationId: '',
+    arrivalStationId: '',
+    fromDate: '',
+    toDate: '',
+    tripType: 'one-way' as 'one-way' | 'round-trip',
     passengers: '1',
   });
 
@@ -23,16 +26,41 @@ export function SearchForm() {
     const today = toLocalYmd();
     setFormData((previous) => ({
       ...previous,
-      date: previous.date || today
+      fromDate: previous.fromDate || today,
+      toDate: previous.toDate || today
     }));
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError('');
+
+    if (!formData.departureStationId) {
+      setFormError('Vui lòng chọn ga đi.');
+      return;
+    }
+
+    if (!formData.arrivalStationId) {
+      setFormError('Vui lòng chọn ga đến.');
+      return;
+    }
+
+    if (formData.departureStationId === formData.arrivalStationId) {
+      setFormError('Ga đi và ga đến phải khác nhau.');
+      return;
+    }
+
+    if (formData.tripType === 'round-trip' && formData.toDate && formData.fromDate && formData.toDate < formData.fromDate) {
+      setFormError('Ngày về phải sau ngày đi.');
+      return;
+    }
+
     const params = new URLSearchParams();
-    if (formData.source.trim()) params.set('source', formData.source.trim());
-    if (formData.destination.trim()) params.set('destination', formData.destination.trim());
-    if (formData.date.trim()) params.set('date', formData.date.trim());
+    params.set('departureStationId', formData.departureStationId);
+    params.set('arrivalStationId', formData.arrivalStationId);
+    params.set('fromDate', formData.fromDate);
+    params.set('toDate', formData.tripType === 'round-trip' ? formData.toDate : formData.fromDate);
+    params.set('tripType', formData.tripType);
     params.set('passengers', formData.passengers);
     router.push(`/results?${params.toString()}`);
   };
@@ -48,20 +76,20 @@ export function SearchForm() {
         <div className="relative">
           <StationSearchSelect
             label={VN.search.from}
-            value={formData.source}
+            value={formData.departureStationId}
             placeholder="Chọn ga đi"
-            exclude={formData.destination}
-            onChange={(value) => setFormData((previous) => ({ ...previous, source: value }))}
+            exclude={formData.arrivalStationId}
+            onChange={(value) => setFormData((previous) => ({ ...previous, departureStationId: value }))}
           />
         </div>
 
         <div className="relative">
           <StationSearchSelect
             label="Ga đến"
-            value={formData.destination}
+            value={formData.arrivalStationId}
             placeholder="Chọn ga đến"
-            exclude={formData.source}
-            onChange={(value) => setFormData((previous) => ({ ...previous, destination: value }))}
+            exclude={formData.departureStationId}
+            onChange={(value) => setFormData((previous) => ({ ...previous, arrivalStationId: value }))}
           />
         </div>
 
@@ -73,8 +101,8 @@ export function SearchForm() {
             onClick={() => {
               setFormData((previous) => ({
                 ...previous,
-                source: previous.destination,
-                destination: previous.source
+                departureStationId: previous.arrivalStationId,
+                arrivalStationId: previous.departureStationId
               }));
             }}
           >
@@ -85,18 +113,47 @@ export function SearchForm() {
 
         {/* Date */}
         <div className="relative">
-          <label className="text-sm font-medium text-gray-700 mb-1 block">Date</label>
+          <label className="text-sm font-medium text-gray-700 mb-1 block">Ngày đi</label>
           <div className="relative">
             <Calendar className="absolute left-3 top-3 w-5 h-5 text-gray-400 pointer-events-none" />
             <Input
               type="date"
-              name="date"
-              value={formData.date}
+              name="fromDate"
+              value={formData.fromDate}
               onChange={handleChange}
               className="pl-10"
             />
           </div>
         </div>
+
+        <div className="relative">
+          <label className="text-sm font-medium text-gray-700 mb-1 block">Loại chuyến</label>
+          <select
+            name="tripType"
+            value={formData.tripType}
+            onChange={handleChange}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-transparent"
+          >
+            <option value="one-way">Một chiều</option>
+            <option value="round-trip">Khứ hồi</option>
+          </select>
+        </div>
+
+        {formData.tripType === 'round-trip' ? (
+          <div className="relative">
+            <label className="text-sm font-medium text-gray-700 mb-1 block">Ngày về</label>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-3 w-5 h-5 text-gray-400 pointer-events-none" />
+              <Input
+                type="date"
+                name="toDate"
+                value={formData.toDate}
+                onChange={handleChange}
+                className="pl-10"
+              />
+            </div>
+          </div>
+        ) : null}
 
         <div className="relative">
           <label className="text-sm font-medium text-gray-700 mb-1 block">{VN.search.passengers}</label>
@@ -109,7 +166,7 @@ export function SearchForm() {
               className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-transparent"
             >
               {[1, 2, 3, 4, 5, 6].map(num => (
-                <option key={num} value={num}>
+                <option key={String(num)} value={String(num)}>
                   {num} {num === 1 ? 'Hành khách' : 'Hành khách'}
                 </option>
               ))}
@@ -127,6 +184,7 @@ export function SearchForm() {
           </Button>
         </div>
       </div>
+      {formError ? <p className="text-sm text-red-600">{formError}</p> : null}
     </form>
   );
 }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { asyncHandler } from '../lib/asyncHandler';
 import { createAccessToken, getAuthUserFromRequest } from '../lib/auth';
 import { AppError } from '../lib/errors';
+import { hashPassword, verifyPassword } from '../lib/password';
 import { prisma } from '../lib/prisma';
 
 export const authRoutes = Router();
@@ -18,7 +19,17 @@ authRoutes.post('/login', asyncHandler(async (request, response) => {
   });
 
   if (!user) {
-    throw new AppError('Email hoặc mật khẩu không hợp lệ.', 401);
+    throw new AppError('Invalid credentials', 401);
+  }
+
+  const passwordHash = (user as { passwordHash?: string | null }).passwordHash;
+  if (!passwordHash) {
+    throw new AppError('Invalid credentials', 401);
+  }
+
+  const isValidPassword = await verifyPassword(payload.password, passwordHash);
+  if (!isValidPassword) {
+    throw new AppError('Invalid credentials', 401);
   }
 
   const accessToken = createAccessToken({
@@ -57,6 +68,7 @@ authRoutes.post('/register', asyncHandler(async (request, response) => {
     data: {
       email,
       name: `${payload.firstName.trim()} ${payload.lastName.trim()}`.trim(),
+      passwordHash: await hashPassword(payload.password),
       role: 'USER'
     }
   });

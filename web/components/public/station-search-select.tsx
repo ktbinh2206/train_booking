@@ -1,12 +1,17 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronsUpDown, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Loader2 } from 'lucide-react';
 import { listStations } from '@/lib/api';
-import { cn } from '@/lib/utils';
+import { SearchableSelect } from '@/components/shared/searchable-select';
+
+type Station = {
+  id: string;
+  code: string;
+  name: string;
+  city: string;
+  label: string;
+};
 
 type StationSearchSelectProps = {
   label: string;
@@ -17,9 +22,8 @@ type StationSearchSelectProps = {
 };
 
 export function StationSearchSelect({ label, value, placeholder, onChange, exclude }: StationSearchSelectProps) {
-  const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [stations, setStations] = useState<string[]>([]);
+  const [stations, setStations] = useState<Station[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -28,6 +32,7 @@ export function StationSearchSelect({ label, value, placeholder, onChange, exclu
       try {
         setLoading(true);
         const data = await listStations();
+
         if (active) {
           setStations(data);
         }
@@ -46,53 +51,33 @@ export function StationSearchSelect({ label, value, placeholder, onChange, exclu
   }, []);
 
   const options = useMemo(
-    () => stations.filter((station) => !exclude || station.toLowerCase() !== exclude.toLowerCase()),
+    () => stations
+      .filter((station) => !exclude || station.id !== exclude)
+      .map((station) => ({ value: station.id, label: station.label })),
     [stations, exclude]
   );
+  
+  if (loading) {
+    return (
+      <div>
+        <label className="text-sm font-medium text-gray-700 mb-1 block">{label}</label>
+        <div className="h-10 rounded-md border border-gray-300 px-3 flex items-center gap-2 text-sm text-gray-600">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Đang tải danh sách ga...
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div>
-      <label className="text-sm font-medium text-gray-700 mb-1 block">{label}</label>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-            <span className="truncate">{value || placeholder}</span>
-            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-          <Command>
-            <CommandInput placeholder="Tìm ga..." />
-            <CommandList>
-              {loading ? (
-                <div className="flex items-center gap-2 px-3 py-4 text-sm text-gray-600">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Đang tải danh sách ga...
-                </div>
-              ) : (
-                <>
-                  <CommandEmpty>Không tìm thấy ga phù hợp.</CommandEmpty>
-                  <CommandGroup>
-                    {options.map((station) => (
-                      <CommandItem
-                        key={station}
-                        value={station}
-                        onSelect={() => {
-                          onChange(station);
-                          setOpen(false);
-                        }}
-                      >
-                        <Check className={cn('mr-2 h-4 w-4', value === station ? 'opacity-100' : 'opacity-0')} />
-                        {station}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </>
-              )}
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-    </div>
+    <SearchableSelect
+      label={label}
+      placeholder={placeholder}
+      value={value}
+      options={options}
+      onChange={onChange}
+      searchPlaceholder="Tìm ga..."
+      emptyText="Không tìm thấy ga phù hợp."
+    />
   );
 }

@@ -3,7 +3,8 @@ import { randomUUID } from 'crypto';
 import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { AppError } from '../lib/errors';
-import { createNotification, recordEmail } from '../lib/communications';
+import { recordEmail } from '../lib/communications';
+import { sendNotification } from './notificationService';
 
 export async function createTrip(input: {
   trainId: string;
@@ -88,7 +89,10 @@ export async function setTripStatus(tripId: string, input: { status: 'ON_TIME' |
     where: { id: tripId },
     data: {
       status: input.status,
-      delayMinutes: input.delayMinutes ?? trip.delayMinutes,
+      delayMinutes: input.status === 'DELAYED' ? (input.delayMinutes ?? trip.delayMinutes) : 0,
+      delayedDepartureTime: input.status === 'DELAYED'
+        ? new Date(trip.departureTime.getTime() + (input.delayMinutes ?? trip.delayMinutes) * 60_000)
+        : null,
       note: input.note ?? trip.note
     },
     include: { train: true }
@@ -97,10 +101,15 @@ export async function setTripStatus(tripId: string, input: { status: 'ON_TIME' |
   if (input.status === 'DELAYED') {
     for (const booking of trip.bookings) {
       if (booking.status === 'PAID' || booking.status === 'HOLDING') {
-        await createNotification({
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: { isAffected: true }
+        });
+
+        await sendNotification({
           userId: booking.userId,
           bookingId: booking.id,
-          type: 'TRIP_DELAYED',
+          type: 'DELAY',
           message: `Chuyến ${trip.origin} - ${trip.destination} bị delay ${updatedTrip.delayMinutes} phút.`
         });
 
@@ -109,7 +118,7 @@ export async function setTripStatus(tripId: string, input: { status: 'ON_TIME' |
           bookingId: booking.id,
           toEmail: booking.contactEmail,
           subject: 'Thông báo delay chuyến tàu',
-          kind: 'TRIP_DELAYED',
+          kind: 'DELAY',
           html: `<p>Chuyến ${trip.origin} - ${trip.destination} bị delay ${updatedTrip.delayMinutes} phút.</p>`
         });
       }
@@ -119,7 +128,15 @@ export async function setTripStatus(tripId: string, input: { status: 'ON_TIME' |
   if (input.status === 'CANCELLED') {
     for (const booking of trip.bookings) {
       if (booking.status === 'PAID') {
-        await prisma.booking.update({ where: { id: booking.id }, data: { status: 'REFUNDED' } });
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: {
+            status: 'CANCELLED',
+            isAffected: true,
+            expiredAt: new Date()
+          }
+        });
+
         await prisma.payment.update({
           where: { bookingId: booking.id },
           data: {
@@ -129,10 +146,19 @@ export async function setTripStatus(tripId: string, input: { status: 'ON_TIME' |
           }
         });
 
-        await createNotification({
+        await prisma.refund.create({
+          data: {
+            bookingId: booking.id,
+            amount: booking.totalAmount,
+            status: 'COMPLETED',
+            reason: `Chuyến ${trip.origin} - ${trip.destination} bị hủy bởi admin`
+          }
+        });
+
+        await sendNotification({
           userId: booking.userId,
           bookingId: booking.id,
-          type: 'REFUND_ISSUED',
+          type: 'CANCEL',
           message: `Chuyến ${trip.origin} - ${trip.destination} bị hủy. Vé đã được hoàn tiền.`
         });
 
@@ -141,17 +167,25 @@ export async function setTripStatus(tripId: string, input: { status: 'ON_TIME' |
           bookingId: booking.id,
           toEmail: booking.contactEmail,
           subject: 'Hoàn tiền do hủy chuyến',
-          kind: 'REFUND_ISSUED',
+          kind: 'CANCEL',
           html: `<p>Chuyến ${trip.origin} - ${trip.destination} bị hủy. Vé đã được hoàn tiền.</p>`
         });
       }
 
       if (booking.status === 'HOLDING') {
-        await prisma.booking.update({ where: { id: booking.id }, data: { status: 'CANCELLED' } });
-        await createNotification({
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: {
+            status: 'CANCELLED',
+            isAffected: true,
+            expiredAt: new Date()
+          }
+        });
+
+        await sendNotification({
           userId: booking.userId,
           bookingId: booking.id,
-          type: 'TRIP_CANCELLED',
+          type: 'CANCEL',
           message: `Chuyến ${trip.origin} - ${trip.destination} đã bị hủy.`
         });
       }
@@ -194,8 +228,15 @@ export async function deleteTrain(trainId: string) {
   return { success: true };
 }
 
-export async function createCarriage(input: { trainId: string; code: string; orderIndex: number }) {
-  return prisma.carriage.create({ data: input });
+export async function createCarriage(input: { trainId: string; code: string; orderIndex: number; type?: 'SOFT_SEAT' | 'HARD_SEAT' | 'SLEEPER' }) {
+  return prisma.carriage.create({
+    data: {
+      trainId: input.trainId,
+      code: input.code,
+      orderIndex: input.orderIndex,
+      type: input.type ?? 'SOFT_SEAT'
+    }
+  });
 }
 
 export async function updateCarriage(carriageId: string, input: { code?: string | undefined; orderIndex?: number | undefined }) {

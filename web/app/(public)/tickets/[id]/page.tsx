@@ -77,6 +77,7 @@ function TicketDetailPageContent() {
   }
 
   const uiStatus = booking.status === 'PAID' ? 'confirmed' : booking.status === 'REFUNDED' || booking.status === 'CANCELLED' ? 'cancelled' : 'pending';
+  const effectiveDeparture = booking.trip.delayedDepartureTime ?? booking.trip.departureTime;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -159,8 +160,11 @@ function TicketDetailPageContent() {
                     <div>
                       <p className="text-sm text-gray-500 mb-1">Ngày đi</p>
                       <p className="font-semibold text-gray-900">
-                        {formatDateTimeVn(booking.trip.departureTime)}
+                        {formatDateTimeVn(effectiveDeparture)}
                       </p>
+                      {booking.trip.status === 'DELAYED' && booking.trip.delayedDepartureTime && (
+                        <p className="text-xs text-amber-600">Lịch chạy đã bị dời</p>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-4">
@@ -168,7 +172,7 @@ function TicketDetailPageContent() {
                     <div>
                       <p className="text-sm text-gray-500 mb-1">Giờ khởi hành</p>
                       <p className="font-semibold text-gray-900">
-                        {formatDateTimeVn(booking.trip.departureTime)}
+                        {formatDateTimeVn(effectiveDeparture)}
                       </p>
                     </div>
                   </div>

@@ -130,7 +130,13 @@ export default function AdminDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {recentBookings.map(booking => (
+                {recentBookings.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500">
+                      Chưa có booking nào gần đây.
+                    </td>
+                  </tr>
+                ) : recentBookings.map(booking => (
                   <tr key={booking.id} className="hover:bg-gray-50">
                     <td className="px-6 py-3">
                       <span className="font-mono text-sm font-semibold text-blue-600">

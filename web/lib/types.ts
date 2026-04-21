@@ -15,6 +15,7 @@ export interface Trip {
   date: string;
   trainNumber: string;
   trainName: string;
+  delayedDepartureTime?: string | null;
 }
 
 export interface Carriage {

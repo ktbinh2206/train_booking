@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { SearchForm } from '@/components/public/search-form';
+import { TodayTrips } from '@/components/public/today-trips';
 import {
   Clock,
   Shield,
@@ -35,6 +36,10 @@ export default function Home() {
           {/* Search Form */}
           <div className="bg-white rounded-xl shadow-lg p-6 md:p-8 max-w-5xl mx-auto mb-8">
             <SearchForm />
+          </div>
+
+          <div className="max-w-5xl mx-auto">
+            <TodayTrips title="Chuyến hôm nay" />
           </div>
 
           {/* Quick Stats */}
