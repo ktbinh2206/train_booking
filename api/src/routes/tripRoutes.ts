@@ -2,8 +2,15 @@ import { Router } from 'express';
 import { asyncHandler } from '../lib/asyncHandler';
 import { AppError } from '../lib/errors';
 import { prisma } from '../lib/prisma';
-
-const tripService = require('../services/tripService');
+import {
+  searchTrips,
+  getTodayTrips,
+  listStations,
+  listTripsForAdmin,
+  getTripDetail,
+  getTripSeatMap,
+  getTripSeatsDetail
+} from '../services/tripService'
 
 export const tripRoutes = Router();
 
@@ -19,7 +26,7 @@ tripRoutes.get('/search', asyncHandler(async (request, response) => {
   const page = typeof request.query.page === 'string' ? Number.parseInt(request.query.page, 10) : undefined;
   const pageSize = typeof request.query.pageSize === 'string' ? Number.parseInt(request.query.pageSize, 10) : undefined;
 
-  const trips = await tripService.searchTrips({ departureStationId, arrivalStationId, date, fromDate, toDate, tripType, page, pageSize });
+  const trips = await searchTrips({ departureStationId, arrivalStationId, date, fromDate, toDate, tripType, page, pageSize });
 
   response.json(trips);
 }));
@@ -27,23 +34,23 @@ tripRoutes.get('/search', asyncHandler(async (request, response) => {
 tripRoutes.get('/today', asyncHandler(async (request, response) => {
   const page = typeof request.query.page === 'string' ? Number.parseInt(request.query.page, 10) : undefined;
   const pageSize = typeof request.query.pageSize === 'string' ? Number.parseInt(request.query.pageSize, 10) : undefined;
-  response.json(await tripService.getTodayTrips({ page, pageSize }));
+  response.json(await getTodayTrips({ page, pageSize }));
 }));
 
 tripRoutes.get('/stations', asyncHandler(async (request, response) => {
   const q = typeof request.query.q === 'string' ? request.query.q : undefined;
-  response.json(await tripService.listStations(q));
+  response.json(await listStations(q));
 }));
 
 tripRoutes.get('/admin', asyncHandler(async (_request, response) => {
-  response.json(await tripService.listTripsForAdmin());
+  response.json(await listTripsForAdmin());
 }));
 
 tripRoutes.get('/:id', asyncHandler(async (request, response) => {
   const id = typeof request.params.id === 'string' ? request.params.id : undefined;
   if (!id) throw new AppError('Không tìm thấy chuyến tàu.', 404);
 
-  const detail = await tripService.getTripDetail(id);
+  const detail = await getTripDetail(id);
   if (!detail) {
     throw new AppError('Không tìm thấy chuyến tàu.', 404);
   }
@@ -55,7 +62,7 @@ tripRoutes.get('/:id/seat-map', asyncHandler(async (request, response) => {
   const id = typeof request.params.id === 'string' ? request.params.id : undefined;
   if (!id) throw new AppError('Không tìm thấy chuyến tàu.', 404);
 
-  const seatMap = await tripService.getTripSeatMap(id);
+  const seatMap = await getTripSeatMap(id);
   if (!seatMap) {
     throw new AppError('Không tìm thấy chuyến tàu.', 404);
   }
@@ -67,7 +74,7 @@ tripRoutes.get('/:id/seats', asyncHandler(async (request, response) => {
   const id = typeof request.params.id === 'string' ? request.params.id : undefined;
   if (!id) throw new AppError('Không tìm thấy chuyến tàu.', 404);
 
-  const seatsDetail = await tripService.getTripSeatsDetail(id);
+  const seatsDetail = await getTripSeatsDetail(id);
   if (!seatsDetail) {
     throw new AppError('Không tìm thấy chuyến tàu.', 404);
   }

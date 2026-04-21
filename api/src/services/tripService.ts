@@ -49,7 +49,7 @@ async function buildTripListResponse(
   pageSize: number,
   total: number
 ) {
-  const items = await Promise.all(trips.map(async (trip) => {
+  const data = await Promise.all(trips.map(async (trip) => {
     const reservedSeatIds = await getReservedSeatIds(trip.id);
     const seatCapacity = await prisma.seat.count({
       where: { carriage: { trainId: trip.trainId } }
@@ -78,7 +78,7 @@ async function buildTripListResponse(
   }));
 
   return {
-    items,
+    data: data,
     page,
     pageSize,
     total,
@@ -115,7 +115,12 @@ export async function searchTrips(input: TripSearchInput) {
     where.departureTime = { gte: startOfDay(new Date()) };
   }
 
+  console.log("where:", where);
+
   const total = await prisma.trip.count({ where });
+
+  console.log("total:", total);
+
   const trips = await prisma.trip.findMany({
     where,
     include: { train: true },
@@ -123,6 +128,9 @@ export async function searchTrips(input: TripSearchInput) {
     skip,
     take: pageSize
   });
+
+  console.log("trips:", trips);
+  
 
   return buildTripListResponse(trips, page, pageSize, total);
 }
@@ -343,11 +351,14 @@ export async function getTripDetail(tripId: string, now = new Date()) {
       id: carriage.id,
       code: carriage.code,
       orderIndex: carriage.orderIndex,
+      basePrice: carriage.basePrice.toNumber(),
+      layoutJson: carriage.layoutJson,
       seats: carriage.seats.map((seat) => ({
         id: seat.id,
         code: seat.code,
         orderIndex: seat.orderIndex,
         status: seat.status,
+        price: seat.price?.toNumber() ?? null,
         available: seat.status === 'ACTIVE' && !reservedSeatIds.has(seat.id)
       }))
     })),
@@ -440,7 +451,7 @@ export async function getReservedSeatIds(tripId: string, now = new Date()) {
 
 export async function listStations(keyword?: string | undefined) {
   const normalizedKeyword = keyword?.trim();
-  
+
   const stations = await prisma.station.findMany({
     where: normalizedKeyword
       ? {

@@ -126,7 +126,7 @@ function ResultsPageContent() {
         });
 
         if (active) {
-          setTrips(data.items);
+          setTrips(data.data);
           setTotalPages(data.totalPages);
           setTotalTrips(data.total);
         }

@@ -47,6 +47,13 @@ import {
   updateTripAdmin,
   updateUserAdmin
 } from '../services/adminCrudService';
+import {
+  bulkSyncCarriageSeatsAdmin,
+  duplicateCarriageAdmin,
+  normalizeLayoutJson,
+  saveCarriageLayoutAdmin,
+  syncCarriageSeatsAdmin
+} from '../services/trainBuilderService';
 
 export const adminRoutes = Router();
 
@@ -136,7 +143,9 @@ const carriagePayloadSchema = z.object({
   trainId: z.string().min(1),
   code: z.string().min(1),
   orderIndex: z.number().int().positive(),
-  type: z.enum(['SOFT_SEAT', 'HARD_SEAT', 'SLEEPER'])
+  type: z.enum(['SOFT_SEAT', 'HARD_SEAT', 'SLEEPER']),
+  basePrice: z.number().nonnegative().optional(),
+  layoutJson: z.unknown().optional()
 });
 
 adminRoutes.get('/carriages', asyncHandler(async (request, response) => {
@@ -154,7 +163,7 @@ adminRoutes.post('/carriages', asyncHandler(async (request, response) => {
 }));
 
 adminRoutes.put('/carriages/:id', asyncHandler(async (request, response) => {
-  const payload = carriagePayloadSchema.pick({ code: true, orderIndex: true, type: true }).partial().parse(request.body);
+  const payload = carriagePayloadSchema.partial().parse(request.body);
   response.json(await updateCarriageAdmin(getIdParam(request, 'id'), payload));
 }));
 
@@ -162,16 +171,52 @@ adminRoutes.delete('/carriages/:id', asyncHandler(async (request, response) => {
   response.json(await deleteCarriageAdmin(getIdParam(request, 'id')));
 }));
 
+adminRoutes.post('/carriages/:id/duplicate', asyncHandler(async (request, response) => {
+  const payload = z.object({
+    code: z.string().min(1).optional()
+  }).optional().parse(request.body ?? {});
+
+  response.status(201).json(await duplicateCarriageAdmin(getIdParam(request, 'id'), payload?.code));
+}));
+
+adminRoutes.patch('/carriages/:id/layout', asyncHandler(async (request, response) => {
+  const layoutJson = normalizeLayoutJson((request.body as { layoutJson?: unknown }).layoutJson ?? request.body);
+  response.json(await saveCarriageLayoutAdmin(getIdParam(request, 'id'), layoutJson));
+}));
+
 const seatPayloadSchema = z.object({
   carriageId: z.string().min(1),
   code: z.string().min(1),
   orderIndex: z.number().int().positive(),
-  status: z.enum(['ACTIVE', 'INACTIVE']).optional()
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+  price: z.number().nonnegative().nullable().optional()
 });
 
 adminRoutes.get('/seats', asyncHandler(async (request, response) => {
   const carriageId = typeof request.query.carriageId === 'string' ? request.query.carriageId : undefined;
   response.json(await listSeatsAdmin({ ...getPaginationQuery(request), carriageId }));
+}));
+
+adminRoutes.post('/seats/sync', asyncHandler(async (request, response) => {
+  const payload = z.object({
+    carriageId: z.string().min(1),
+    layoutJson: z.unknown()
+  }).parse(request.body);
+
+  response.json(await syncCarriageSeatsAdmin(payload.carriageId, payload.layoutJson));
+}));
+
+adminRoutes.post('/seats/bulk', asyncHandler(async (request, response) => {
+  const payload = z.object({
+    carriageId: z.string().min(1),
+    seats: z.array(z.object({
+      code: z.string().min(1),
+      orderIndex: z.number().int().positive()
+    })).min(0),
+    layoutJson: z.unknown().optional()
+  }).parse(request.body);
+
+  response.json(await bulkSyncCarriageSeatsAdmin(payload.carriageId, payload.seats, payload.layoutJson));
 }));
 
 adminRoutes.get('/seats/:id', asyncHandler(async (request, response) => {
@@ -184,7 +229,7 @@ adminRoutes.post('/seats', asyncHandler(async (request, response) => {
 }));
 
 adminRoutes.put('/seats/:id', asyncHandler(async (request, response) => {
-  const payload = seatPayloadSchema.pick({ code: true, orderIndex: true, status: true }).partial().parse(request.body);
+  const payload = seatPayloadSchema.partial().parse(request.body);
   response.json(await updateSeatAdmin(getIdParam(request, 'id'), payload));
 }));
 

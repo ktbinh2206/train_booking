@@ -93,6 +93,11 @@ export async function listTrainsAdmin(input: PaginationInput) {
       include: {
         carriages: {
           include: {
+            seats: {
+              select: {
+                id: true
+              }
+            },
             _count: {
               select: {
                 seats: true
@@ -115,7 +120,23 @@ export async function listTrainsAdmin(input: PaginationInput) {
     })
   ]);
 
-  return toPageResult(items, total, page, pageSize);
+  const data = items.map((train) => {
+    const totalCarriages = train.carriages.length;
+    const totalSeats = train.carriages.reduce((sum, carriage) => sum + carriage._count.seats, 0);
+    const carriagePrices = train.carriages.map((carriage) => Number(carriage.basePrice.toString()));
+    const minPrice = carriagePrices.length > 0 ? Math.min(...carriagePrices) : null;
+    const maxPrice = carriagePrices.length > 0 ? Math.max(...carriagePrices) : null;
+
+    return {
+      ...train,
+      carriageCount: totalCarriages,
+      seatCount: totalSeats,
+      minCarriagePrice: minPrice,
+      maxCarriagePrice: maxPrice
+    };
+  });
+
+  return toPageResult(data, total, page, pageSize);
 }
 
 export async function getTrainByIdAdmin(trainId: string) {
@@ -141,7 +162,13 @@ export async function getTrainByIdAdmin(trainId: string) {
     throw new AppError('Không tìm thấy tàu.', 404);
   }
 
-  return train;
+  return {
+    ...train,
+    carriages: train.carriages.map((carriage) => ({
+      ...carriage,
+      seatCount: carriage.seats.length
+    }))
+  };
 }
 
 export async function createTrainAdmin(input: { code: string; name: string }) {
@@ -219,6 +246,8 @@ export async function createCarriageAdmin(input: {
   code: string;
   orderIndex: number;
   type: 'SOFT_SEAT' | 'HARD_SEAT' | 'SLEEPER';
+  basePrice?: number;
+  layoutJson?: unknown;
 }) {
   const train = await prisma.train.findUnique({ where: { id: input.trainId } });
   if (!train) {
@@ -230,7 +259,9 @@ export async function createCarriageAdmin(input: {
       trainId: input.trainId,
       code: input.code.trim().toUpperCase(),
       orderIndex: input.orderIndex,
-      type: input.type
+      type: input.type,
+      basePrice: input.basePrice === undefined ? undefined : new Decimal(input.basePrice),
+      layoutJson: input.layoutJson as never
     }
   });
 }
@@ -241,12 +272,16 @@ export async function updateCarriageAdmin(
     code?: string;
     orderIndex?: number;
     type?: 'SOFT_SEAT' | 'HARD_SEAT' | 'SLEEPER';
+    basePrice?: number;
+    layoutJson?: unknown;
   }
 ) {
   const data: Record<string, unknown> = {};
   if (input.code !== undefined) data.code = input.code.trim().toUpperCase();
   if (input.orderIndex !== undefined) data.orderIndex = input.orderIndex;
   if (input.type !== undefined) data.type = input.type;
+  if (input.basePrice !== undefined) data.basePrice = new Decimal(input.basePrice);
+  if (input.layoutJson !== undefined) data.layoutJson = input.layoutJson as never;
 
   return prisma.carriage.update({
     where: { id: carriageId },
@@ -307,6 +342,7 @@ export async function createSeatAdmin(input: {
   code: string;
   orderIndex: number;
   status?: 'ACTIVE' | 'INACTIVE';
+  price?: number | null;
 }) {
   const carriage = await prisma.carriage.findUnique({ where: { id: input.carriageId } });
   if (!carriage) {
@@ -318,7 +354,8 @@ export async function createSeatAdmin(input: {
       carriageId: input.carriageId,
       code: input.code.trim().toUpperCase(),
       orderIndex: input.orderIndex,
-      status: input.status ?? 'ACTIVE'
+      status: input.status ?? 'ACTIVE',
+      price: input.price === undefined || input.price === null ? null : new Decimal(input.price)
     }
   });
 }
@@ -329,12 +366,14 @@ export async function updateSeatAdmin(
     code?: string;
     orderIndex?: number;
     status?: 'ACTIVE' | 'INACTIVE';
+    price?: number | null;
   }
 ) {
   const data: Record<string, unknown> = {};
   if (input.code !== undefined) data.code = input.code.trim().toUpperCase();
   if (input.orderIndex !== undefined) data.orderIndex = input.orderIndex;
   if (input.status !== undefined) data.status = input.status;
+  if (input.price !== undefined) data.price = input.price === null ? null : new Decimal(input.price);
 
   return prisma.seat.update({
     where: { id: seatId },

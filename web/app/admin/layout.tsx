@@ -37,7 +37,7 @@ const adminNavItems = [
   },
   {
     icon: Zap,
-    label: 'Toa tàu và ghế',
+    label: 'Quản lý tàu',
     href: '/admin/carriages',
   },
   {

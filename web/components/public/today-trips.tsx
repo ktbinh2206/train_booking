@@ -28,7 +28,7 @@ export function TodayTrips({ title = 'Chuyến hôm nay' }: TodayTripsProps) {
         setError(null);
         const data = await getTodayTrips({ page, pageSize: 10 });
         if (!active) return;
-        setTrips(data.items);
+        setTrips(data.data);
         setTotalPages(data.totalPages);
         setTotal(data.total);
       } catch (unknownError) {

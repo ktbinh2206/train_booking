@@ -23,6 +23,7 @@ function BookingSeatsPageContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [carriageGroupIndex, setCarriageGroupIndex] = useState(0);
+  const [selectedCarriageId, setSelectedCarriageId] = useState<string | null>(null);
 
   const CARRIAGES_PER_GROUP = 5;
 
@@ -52,6 +53,9 @@ function BookingSeatsPageContent() {
 
         setTrip(detail.trip);
         setCarriages(uiCarriages);
+        if (uiCarriages.length > 0) {
+          setSelectedCarriageId(uiCarriages[0].id);
+        }
         setCarriageSeatsById(seatMapByCarriage);
       } catch (unknownError) {
         if (!active) return;
@@ -123,6 +127,8 @@ function BookingSeatsPageContent() {
       </div>
     );
   }
+
+  const selectedCarriage = carriages.find(c => c.id === selectedCarriageId);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -207,35 +213,13 @@ function BookingSeatsPageContent() {
                     key={carriage.id}
                     className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition cursor-pointer"
                     onClick={() => {
-                      // Toggle carriage display or show carriage details
+                      setSelectedCarriageId(carriage.id);
                     }}
                   >
                     <div className="text-center mb-3">
                       <div className="text-xl font-bold text-gray-900 mb-1">Toa {carriage.number}</div>
                       <div className="text-xs text-gray-600 mb-2">{carriage.type.replace('_', ' ')}</div>
                       <div className="text-sm font-semibold text-blue-600">{selectedCount}/{totalSeats}</div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-1 mb-3">
-                      {carriageSeats.slice(0, 9).map(seat => {
-                        const isSelected = selectedSeats.includes(seat.id);
-                        const statusColor = isSelected ? 'bg-blue-600' : seat.status === 'available' ? 'bg-white border border-gray-300' : 'bg-gray-400';
-                        return (
-                          <button
-                            key={seat.id}
-                            className={`w-6 h-6 rounded text-xs font-bold ${statusColor} ${seat.status !== 'available' && !isSelected ? 'cursor-not-allowed' : 'hover:bg-blue-100'}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (seat.status === 'available' || seat.status === 'selected') {
-                                handleSeatSelect(seat.id);
-                              }
-                            }}
-                            disabled={seat.status !== 'available' && !isSelected}
-                            title={`${seat.seatNumber}`}
-                          >
-                            {isSelected ? '✓' : ''}
-                          </button>
-                        );
-                      })}
                     </div>
                     <div className="text-xs text-gray-600 text-center">
                       {availableSeats} / {totalSeats} còn trống
@@ -247,16 +231,13 @@ function BookingSeatsPageContent() {
           </div>
 
           {/* Detailed Seat Map for Selected Carriage */}
-          {visibleCarriages.length > 0 && (
+          {selectedCarriage && (
             <div className="bg-white rounded-lg border border-gray-200 p-8">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                Sơ đồ chi tiết - Toa {visibleCarriages[0]!.number}
+                Sơ đồ chi tiết - Toa {selectedCarriage.number}
               </h3>
-              <p className="text-sm text-gray-600 mb-6">
-                Nhấp vào toa để xem chi tiết sơ đồ ghế
-              </p>
               <SeatMap
-                seats={carriageSeatsById[visibleCarriages[0]!.id] ?? []}
+                seats={carriageSeatsById[selectedCarriage.id] ?? []}
                 selectedSeats={selectedSeats}
                 onSeatSelect={handleSeatSelect}
               />
@@ -345,7 +326,7 @@ function BookingSeatsPageContent() {
           </div>
         </div>
       </div>
-    </div>
+    </div >
   );
 }
 
