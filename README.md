@@ -16,8 +16,18 @@ npm install
 
 Then:
 
-npx prisma migrate dev
+# 1. chạy DB
+docker compose up -d
+
+# 2. tạo bảng
+npx prisma db push
+
+# 3. generate client
+npx prisma generate
+
+# 4. seed
 npx prisma db seed
+
 npm run dev
 
 Backend will run at:
