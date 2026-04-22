@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { getBooking } from '@/lib/api';
+import { cancelBooking, getBooking } from '@/lib/api';
 import { VN } from '@/lib/translations';
 import { formatCurrencyVND, formatDateVn } from '@/lib/utils';
 import { useAuth } from '@/components/auth/auth-provider';
@@ -100,9 +100,6 @@ function CheckoutPageContent() {
 
         const nextBooking = await getBooking(bookingId);
 
-        console.log(nextBooking);
-        
-
         if (!active) return;
 
         if (!nextBooking) {
@@ -183,6 +180,18 @@ function CheckoutPageContent() {
       setError(message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!booking) return;
+
+    try {
+      await cancelBooking(booking.id, "Hủy booking từ trang checkout");
+    } catch (err) {
+      console.error('Cancel booking failed', err);
+    } finally {
+      router.push(`/booking/seats?tripId=${booking.trip.id}`);
     }
   };
 
@@ -435,9 +444,13 @@ function CheckoutPageContent() {
               >
                 {submitting ? 'Đang chuyển đến thanh toán...' : 'Tiếp tục thanh toán'}
               </Button>
-              <Link href={`/booking/seats?tripId=${booking.trip.id}`}>
-                <Button variant="outline" className="w-full">Quay lại</Button>
-              </Link>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={handleCancel}
+              >
+                Quay lại
+              </Button>
             </div>
           </div>
         </div>

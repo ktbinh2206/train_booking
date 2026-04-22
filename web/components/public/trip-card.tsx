@@ -72,7 +72,7 @@ export function TripCard({ trip }: TripCardProps) {
           <p className="text-2xl font-bold text-gray-900">{formatCurrencyVND(trip.basePrice)}</p>
         </div>
         <Link href={`/trip/${trip.id}`}>
-          <Button className="bg-blue-600 hover:bg-blue-700">
+          <Button className="bg-blue-600 hover:bg-blue-700 cursor-pointer text-white font-semibold ">
             Xem và đặt
           </Button>
         </Link>

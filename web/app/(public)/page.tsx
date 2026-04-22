@@ -22,7 +22,7 @@ export default function Home() {
   return (
     <>
       {/* Hero Section */}
-      <section className="bg-gradient-to-br from-blue-50 to-white py-12 md:py-20">
+      <section className="bg-gradient-to-br from-blue-50 to-white pt-12 md:pt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
             <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4 text-balance">
@@ -31,31 +31,35 @@ export default function Home() {
             <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
               Đặt vé tàu hỏa của bạn trong vài giây. So sánh các chuyến tàu, kiểm tra tính khả dụng và hoàn thành đặt vé của bạn chỉ trong vài click.
             </p>
+            <Link href="/search">
+              <Button size="lg" className="bg-blue-600 text-white hover:bg-blue-700 font-semibold hover:shadow-xl transition cursor-pointer">
+                Bắt đầu đặt vé
+              </Button>
+            </Link>
           </div>
 
-          {/* Search Form */}
-          <div className="bg-white rounded-xl shadow-lg p-6 md:p-8 max-w-5xl mx-auto mb-8">
-            <SearchForm />
-          </div>
+        </div>
+      </section>
 
-          <div className="max-w-5xl mx-auto">
-            <TodayTrips title="Chuyến hôm nay" />
-          </div>
+      {/* CTA Section */}
+      <section className="pb-12 md:pb-20 bg-blue-100">
+        <div className="max-w-5xl mx-auto">
+          <TodayTrips title="Chuyến tàu hôm nay" />
+        </div>
 
-          {/* Quick Stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 text-center">
-            <div>
-              <p className="text-3xl font-bold text-blue-600 mb-2">500+</p>
-              <p className="text-gray-600">Tuyến tàu</p>
-            </div>
-            <div>
-              <p className="text-3xl font-bold text-blue-600 mb-2">50K+</p>
-              <p className="text-gray-600">Hành khách hàng ngày</p>
-            </div>
-            <div>
-              <p className="text-3xl font-bold text-blue-600 mb-2">24/7</p>
-              <p className="text-gray-600">Hỗ trợ khách hàng</p>
-            </div>
+        {/* Quick Stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 text-center">
+          <div>
+            <p className="text-3xl font-bold text-blue-600 mb-2">500+</p>
+            <p className="text-gray-600">Tuyến tàu</p>
+          </div>
+          <div>
+            <p className="text-3xl font-bold text-blue-600 mb-2">50K+</p>
+            <p className="text-gray-600">Hành khách hàng ngày</p>
+          </div>
+          <div>
+            <p className="text-3xl font-bold text-blue-600 mb-2">24/7</p>
+            <p className="text-gray-600">Hỗ trợ khách hàng</p>
           </div>
         </div>
       </section>
@@ -197,22 +201,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="py-12 md:py-20 bg-blue-600">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 text-balance">
-            Sẵn sàng cho chuyến tàu tiếp theo?
-          </h2>
-          <p className="text-blue-100 mb-8 max-w-2xl mx-auto text-lg">
-            Đồng hành cùng hàng ngàn hành khách đã tin tưởng RailBooking cho mọi hành trình.
-          </p>
-          <Link href="/search">
-            <Button size="lg" className="bg-white text-blue-600 hover:bg-gray-100 font-semibold">
-              Bắt đầu đặt vé
-            </Button>
-          </Link>
-        </div>
-      </section>
+
 
       {/* Announcements */}
       <section className="py-8 bg-yellow-50 border-t border-yellow-200 border-b border-yellow-200">

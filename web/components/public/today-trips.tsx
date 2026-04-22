@@ -11,7 +11,7 @@ type TodayTripsProps = {
   title?: string;
 };
 
-export function TodayTrips({ title = 'Chuyến hôm nay' }: TodayTripsProps) {
+export function TodayTrips({ title = 'Chuyến tàu hôm nay' }: TodayTripsProps) {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -55,7 +55,6 @@ export function TodayTrips({ title = 'Chuyến hôm nay' }: TodayTripsProps) {
       <div className="flex items-center justify-between gap-4 mb-6">
         <div>
           <h2 className="text-3xl font-bold text-gray-900">{title}</h2>
-          <p className="text-gray-600 mt-1">Tối đa 10 chuyến trên mỗi trang, sắp xếp theo giờ khởi hành.</p>
         </div>
         <div className="text-sm text-gray-500">
           {total} chuyến

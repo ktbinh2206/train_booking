@@ -58,10 +58,10 @@ export default function SearchPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-600 via-blue-500 to-blue-50">
+    <div className="min-h-screen bg-gradient-to-b from-blue-400 to-blue-50">
       {/* Hero Section */}
       <div className="px-4 sm:px-6 lg:px-8 py-12 sm:py-16 lg:py-20">
-        <div className="max-w-4xl mx-auto">
+        <div className="w-full mx-auto">
           <h1 className="text-4xl sm:text-5xl font-bold text-white mb-4 text-center">
             Tìm hành trình phù hợp nhất
           </h1>
@@ -70,7 +70,7 @@ export default function SearchPage() {
           </p>
 
           {/* Search Form Card */}
-          <Card className="border-0 shadow-2xl">
+          <Card className="border-0 shadow-2xl ">
             <div className="p-6 sm:p-8">
               {/* Trip Type Selection */}
               <div className="flex gap-4 mb-6">
@@ -119,7 +119,10 @@ export default function SearchPage() {
                   />
                 </div>
 
-                <div className="sm:col-span-2 lg:col-span-1 flex items-end">
+                <div className="sm:col-span-2 lg:col-span-1 flex flex-col items-center justify-center">
+                  <span className="text-sm mb-2">
+                    Đổi ga
+                  </span>
                   <Button
                     type="button"
                     variant="outline"
@@ -130,7 +133,6 @@ export default function SearchPage() {
                     }}
                   >
                     <ArrowRightLeft className="w-4 h-4 mr-2" />
-                    Đổi ga
                   </Button>
                 </div>
 
@@ -203,6 +205,8 @@ export default function SearchPage() {
         </div>
       </div>
 
+      <TodayTrips title="Chuyến hôm nay" />
+
       {/* Why Choose Us Section */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">Vì sao chọn RailBook?</h2>
@@ -233,7 +237,6 @@ export default function SearchPage() {
         </div>
       </div>
 
-      <TodayTrips title="Chuyến hôm nay" />
     </div>
   );
 }
