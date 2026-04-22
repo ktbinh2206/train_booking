@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const searchParams = useSearchParams();
+
+  const redirect = searchParams.get('redirect');
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -34,7 +38,6 @@ export default function LoginPage() {
         email: email.trim(),
         password
       });
-      router.push('/');
     } catch (unknownError) {
       const message = unknownError instanceof Error ? unknownError.message : 'Không thể đăng nhập.';
       setError(message);
@@ -45,9 +48,13 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (user) {
-      router.replace('/');
+      if (redirect) {
+        router.replace(decodeURIComponent(redirect));
+      } else {
+        router.replace('/');
+      }
     }
-  }, [user, router]);
+  }, [user, redirect, router]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white flex items-center justify-center px-4 py-12">

@@ -4,7 +4,7 @@ import { asyncHandler } from '../lib/asyncHandler';
 import { getAuthUserFromRequest } from '../lib/auth';
 import { AppError } from '../lib/errors';
 import { serializeBooking } from '../lib/serializers';
-import { cancelBooking, createBooking, expireBooking, getBookingById, listBookings, payBooking } from '../services/bookingService';
+import { cancelBooking, createBooking, expireBooking, getBookingById, listBookings, payBooking, holdOrGetBooking } from '../services/bookingService';
 
 export const bookingRoutes = Router();
 
@@ -73,6 +73,33 @@ bookingRoutes.post('/', asyncHandler(async (request, response) => {
     userId: effectiveUserId
   });
   response.status(201).json(serializeBooking(booking));
+}));
+
+bookingRoutes.post('/hold-or-get', asyncHandler(async (request, response) => {
+  const authUser = getAuthUserFromRequest(request);
+  const payload = createBookingSchema.parse(request.body);
+
+  const effectiveUserId = payload.userId ?? authUser?.id;
+
+  if (!effectiveUserId) {
+    throw new AppError('Thiếu userId.', 400);
+  }
+
+  if (authUser && authUser.role !== 'ADMIN' && effectiveUserId !== authUser.id) {
+    throw new AppError('Bạn không có quyền tạo booking cho user khác.', 403);
+  }
+
+  const booking = await holdOrGetBooking({
+    ...payload,
+    userId: effectiveUserId
+  });
+
+  const fullBooking = await getBookingById(booking.id);
+  if (!fullBooking) {
+    throw new AppError('Không tìm thấy booking.', 404);
+  }
+
+  response.json(serializeBooking(fullBooking));
 }));
 
 bookingRoutes.post('/:id/pay', asyncHandler(async (request, response) => {

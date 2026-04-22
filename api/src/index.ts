@@ -104,7 +104,7 @@ const cleanupTimer = setInterval(async () => {
       toEmail: booking.contactEmail
     });
   }
-}, 60_000);
+}, 15_000);
 
 cleanupTimer.unref();
 

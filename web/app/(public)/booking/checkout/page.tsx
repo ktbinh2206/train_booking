@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { AlertCircle, Mail, Phone } from 'lucide-react';
 import { Breadcrumb } from '@/components/shared/breadcrumb';
@@ -28,6 +28,11 @@ function CheckoutPageContent() {
   const router = useRouter();
 
   const { user, loading: authLoading } = useAuth();
+
+  const pathname = usePathname();
+
+  const currentUrl = `${pathname}?${searchParams.toString()}`;
+
 
   const tripId = searchParams.get('tripId') || '';
   const seatIds = (searchParams.get('seats') || '').split(',').filter(Boolean);
@@ -165,7 +170,7 @@ function CheckoutPageContent() {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <p className="text-gray-700 mb-4">Bạn cần đăng nhập để tiếp tục đặt vé.</p>
-        <Link href="/login">
+        <Link href={`/login?redirect=${encodeURIComponent(currentUrl)}`}>
           <Button>Đăng nhập</Button>
         </Link>
       </div>

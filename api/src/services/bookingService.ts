@@ -143,6 +143,167 @@ export async function createBooking(input: {
   return booking;
 }
 
+export async function holdOrGetBooking(input: {
+  userId: string;
+  tripId: string;
+  seatIds: string[];
+  contactEmail: string;
+}) {
+  if (input.seatIds.length === 0) {
+    throw new AppError('Phải chọn ít nhất 1 ghế.', 400);
+  }
+
+  const now = new Date();
+
+  return await prisma.$transaction(async (tx) => {
+    // 1. Tìm booking HOLDING còn hạn của user + trip
+    const existing = await tx.booking.findFirst({
+      where: {
+        userId: input.userId,
+        tripId: input.tripId,
+        status: BookingStatus.HOLDING,
+        holdExpiresAt: { gt: now }
+      },
+      include: {
+        bookingSeats: true
+      }
+    });
+
+    // 2. Nếu có → check ghế có match không
+    if (existing) {
+      const existingSeatIds = existing.bookingSeats.map(s => s.seatId);
+
+      const isSameSeats =
+        existingSeatIds.length === input.seatIds.length &&
+        existingSeatIds.every(id => input.seatIds.includes(id));
+
+      if (isSameSeats) {
+        // 👉 reuse booking cũ
+        return existing;
+      }
+
+      // ⚠️ nếu khác ghế → expire booking cũ
+      await tx.booking.update({
+        where: { id: existing.id },
+        data: {
+          status: BookingStatus.CANCELLED,
+          expiredAt: now
+        }
+      });
+    }
+
+    // 3. Check ghế đã bị giữ chưa
+    const reservedSeatIds = await getReservedSeatIds(input.tripId, now);
+
+    for (const seatId of input.seatIds) {
+      if (reservedSeatIds.has(seatId)) {
+        throw new AppError('Ghế đã được giữ hoặc đã bán.', 409);
+      }
+    }
+
+    // 4. Tạo booking mới (reuse createBooking logic nhưng dùng tx)
+    const trip = await tx.trip.findUnique({
+      where: { id: input.tripId },
+      include: {
+        tripCarriages: {
+          include: { seats: true }
+        }
+      }
+    });
+
+    if (!trip) {
+      throw new AppError('Chuyến tàu không tồn tại.', 404);
+    }
+
+    if (!isTripActive(trip.status)) {
+      throw new AppError('Chuyến đã bị hủy.', 400);
+    }
+
+    const allSeats = trip.tripCarriages.flatMap(c => c.seats);
+    const seatById = new Map(allSeats.map(s => [s.id, s]));
+
+    const selectedSeats = input.seatIds.map(id => {
+      const seat = seatById.get(id);
+      if (!seat) {
+        throw new AppError('Có ghế không thuộc chuyến tàu.', 400);
+      }
+      return seat;
+    });
+
+    const carriageMap = new Map(
+      trip.tripCarriages.map(c => [c.id, c])
+    );
+
+    const seatPrices = selectedSeats.map(seat => {
+      const carriage = carriageMap.get(seat.carriageId)!;
+      const finalPrice =
+        seat.price ??
+        carriage.basePrice ??
+        trip.price;
+
+      return new Decimal(finalPrice.toString());
+    });
+
+    const totalAmount = seatPrices.reduce(
+      (sum, p) => sum.plus(p),
+      new Decimal(0)
+    );
+
+    const holdExpiresAt = addMinutes(now, 5);
+
+    const bookingCode = `BK-${now
+      .getTime()
+      .toString(36)
+      .toUpperCase()}-${randomUUID().slice(0, 6).toUpperCase()}`;
+
+    const booking = await tx.booking.create({
+      data: {
+        code: bookingCode,
+        userId: input.userId,
+        tripId: trip.id,
+        status: BookingStatus.HOLDING,
+        holdExpiresAt,
+        expiredAt: holdExpiresAt,
+        totalAmount,
+        contactEmail: input.contactEmail,
+        seatCount: selectedSeats.length,
+
+        bookingSeats: {
+          create: selectedSeats.map((seat, index) => ({
+            seatId: seat.id,
+            priceSnapshot: seatPrices[index]
+          }))
+        },
+
+        payment: {
+          create: {
+            status: 'PENDING',
+            method: 'CARD',
+            amount: totalAmount
+          }
+        }
+      },
+      include: {
+        trip: { include: { train: true } },
+        user: true,
+        payment: true,
+        ticket: true,
+        bookingSeats: true
+      }
+    });
+
+    await sendNotification({
+      userId: input.userId,
+      bookingId: booking.id,
+      type: 'HOLD_EXPIRE',
+      message: `Đặt chỗ thành công ${booking.code}. Hết hạn lúc ${holdExpiresAt.toISOString()}.`,
+      toEmail: input.contactEmail
+    });
+
+    return booking;
+  });
+}
+
 export async function payBooking(bookingId: string) {
   const now = new Date();
   const booking = await prisma.booking.findUnique({
