@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { AlertCircle, Mail, Phone } from 'lucide-react';
@@ -10,8 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { createBooking, getTripDetail, mapSeatsForCarriage } from '@/lib/api';
-import { Trip } from '@/lib/types';
+import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { getBooking } from '@/lib/api';
 import { VN } from '@/lib/translations';
 import { formatCurrencyVND, formatDateVn } from '@/lib/utils';
 import { useAuth } from '@/components/auth/auth-provider';
@@ -34,16 +34,17 @@ function CheckoutPageContent() {
   const currentUrl = `${pathname}?${searchParams.toString()}`;
 
 
-  const tripId = searchParams.get('tripId') || '';
-  const seatIds = (searchParams.get('seats') || '').split(',').filter(Boolean);
+  const bookingId = searchParams.get('bookingId') || '';
 
-  const [trip, setTrip] = useState<Trip | null>(null);
+  const [booking, setBooking] = useState<Awaited<ReturnType<typeof getBooking>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
+  const [showExpiredModal, setShowExpiredModal] = useState(false);
 
   const [passengers, setPassengers] = useState<Passenger[]>(
-    seatIds.map(() => ({
+    Array.from({ length: booking?.seatIds.length ?? 0 }, () => ({
       firstName: '',
       lastName: '',
       age: '',
@@ -63,12 +64,33 @@ function CheckoutPageContent() {
   });
 
   useEffect(() => {
+    setPassengers(
+      Array.from({ length: booking?.seatIds.length ?? 0 }, () => ({
+        firstName: '',
+        lastName: '',
+        age: '',
+        gender: ''
+      }))
+    );
+  }, [booking?.seatIds.length]);
+
+  useEffect(() => {
+    if (!booking?.contactEmail) {
+      return;
+    }
+
+    setContactInfo((previous) => ({
+      ...previous,
+      email: previous.email || booking.contactEmail
+    }));
+  }, [booking?.contactEmail]);
+
+  useEffect(() => {
     let active = true;
 
     const run = async () => {
-      if (!tripId || seatIds.length === 0) {
-        setError('Thiếu thông tin chuyến hoặc ghế.');
-        setLoading(false);
+      if (!bookingId) {
+        router.replace('/search');
         return;
       }
 
@@ -76,27 +98,39 @@ function CheckoutPageContent() {
         setLoading(true);
         setError(null);
 
-        const detail = await getTripDetail(tripId);
-        const availableSeatIds = new Set(
-          detail.carriages.flatMap((carriage) =>
-            mapSeatsForCarriage(carriage, detail.trip.basePrice)
-              .filter((seat) => seat.status === 'available')
-              .map((seat) => seat.id)
-          )
-        );
-        const unavailableSeats = seatIds.filter((seatId) => !availableSeatIds.has(seatId));
+        const nextBooking = await getBooking(bookingId);
 
-        if (unavailableSeats.length > 0) {
-          throw new Error('Một hoặc nhiều ghế đã được giữ hoặc đã bán. Vui lòng quay lại chọn ghế khác.');
+        console.log(nextBooking);
+        
+
+        if (!active) return;
+
+        if (!nextBooking) {
+          router.replace('/search');
+          return;
         }
 
-        if (!active) return;
+        const isExpiredByTime = !nextBooking.holdExpiresAt || new Date(nextBooking.holdExpiresAt).getTime() <= Date.now();
+        const isExpiredByStatus = nextBooking.status === 'EXPIRED';
 
-        setTrip(detail.trip);
+        if (isExpiredByStatus || isExpiredByTime) {
+          setBooking(nextBooking);
+          setExpired(true);
+          setShowExpiredModal(true);
+          return;
+        }
+
+        if (nextBooking.status !== 'HOLDING') {
+          router.replace('/search');
+          return;
+        }
+
+        setBooking(nextBooking);
       } catch (unknownError) {
-        if (!active) return;
-        const message = unknownError instanceof Error ? unknownError.message : 'Không thể tải dữ liệu checkout.';
-        setError(message);
+        if (active) {
+          setError(unknownError instanceof Error ? unknownError.message : 'Không thể tải dữ liệu booking.');
+          router.replace('/search');
+        }
       } finally {
         if (active) {
           setLoading(false);
@@ -109,13 +143,13 @@ function CheckoutPageContent() {
     return () => {
       active = false;
     };
-  }, [tripId, seatIds.length]);
+  }, [bookingId, router]);
 
   const subtotal = useMemo(() => {
-    return Math.round((trip?.basePrice ?? 0) * seatIds.length);
-  }, [trip?.basePrice, seatIds.length]);
-  const taxes = Math.round(subtotal * 0.1);
-  const total = subtotal + taxes;
+    return Math.round(booking?.totalAmount ?? 0);
+  }, [booking?.totalAmount]);
+  const taxes = 0;
+  const total = subtotal;
 
   const handlePassengerChange = (index: number, field: keyof Passenger, value: string) => {
     setPassengers((previous) => {
@@ -127,14 +161,15 @@ function CheckoutPageContent() {
 
   const canSubmit =
     !!user &&
-    !!trip &&
+    !!booking &&
     !!contactInfo.email &&
     !!contactInfo.phone &&
+    !expired &&
     policies.terms &&
     passengers.every((passenger) => passenger.firstName && passenger.lastName && passenger.age && passenger.gender);
 
   const handleContinue = async () => {
-    if (!canSubmit || !trip) {
+    if (!canSubmit || !booking) {
       return;
     }
 
@@ -142,16 +177,9 @@ function CheckoutPageContent() {
       setSubmitting(true);
       setError(null);
 
-      const booking = await createBooking({
-        userId: user?.id,
-        tripId: trip.id,
-        seatIds,
-        contactEmail: contactInfo.email
-      });
-
       router.push(`/booking/payment?bookingId=${booking.id}`);
     } catch (unknownError) {
-      const message = unknownError instanceof Error ? unknownError.message : 'Tạo booking thất bại.';
+      const message = unknownError instanceof Error ? unknownError.message : 'Không thể tiếp tục thanh toán.';
       setError(message);
     } finally {
       setSubmitting(false);
@@ -177,7 +205,7 @@ function CheckoutPageContent() {
     );
   }
 
-  if (error && !trip) {
+  if (error && !booking) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <p className="text-red-600 mb-4">{error}</p>
@@ -188,10 +216,10 @@ function CheckoutPageContent() {
     );
   }
 
-  if (!trip) {
+  if (!booking) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <p className="text-gray-600">Không tìm thấy chuyến tàu</p>
+        <p className="text-gray-600">Không tìm thấy booking</p>
       </div>
     );
   }
@@ -202,33 +230,39 @@ function CheckoutPageContent() {
         items={[
           { label: VN.nav.home, href: '/' },
           { label: VN.results.searchResults, href: '/results' },
-          { label: VN.booking.selectSeats, href: `/booking/seats?tripId=${trip.id}` },
+          { label: VN.booking.selectSeats, href: `/booking/seats?tripId=${booking.trip.id}` },
           { label: VN.booking.checkout }
         ]}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
         <div className="lg:col-span-2 space-y-8">
-          <CountdownTimer minutes={5} />
+          <CountdownTimer
+            expiresAtISO={booking.holdExpiresAt}
+            onExpire={() => {
+              setExpired(true);
+              setShowExpiredModal(true);
+            }}
+          />
 
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Tóm tắt chuyến đi</h2>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
               <div>
                 <p className="text-gray-500 mb-1">Ngày đi</p>
-                <p className="font-semibold text-gray-900">{formatDateVn(trip.date)}</p>
+                <p className="font-semibold text-gray-900">{formatDateVn(booking.trip.departureTime)}</p>
               </div>
               <div>
                 <p className="text-gray-500 mb-1">Tàu</p>
-                <p className="font-semibold text-gray-900">{trip.trainName}</p>
+                <p className="font-semibold text-gray-900">{booking.trip.trainName ?? '-'}</p>
               </div>
               <div>
                 <p className="text-gray-500 mb-1">Tuyến đường</p>
-                <p className="font-semibold text-gray-900">{trip.source} → {trip.destination}</p>
+                <p className="font-semibold text-gray-900">{booking.trip.origin} → {booking.trip.destination}</p>
               </div>
               <div>
                 <p className="text-gray-500 mb-1">Số ghế</p>
-                <p className="font-semibold text-gray-900">{seatIds.length}</p>
+                <p className="font-semibold text-gray-900">{booking.seatIds.length}</p>
               </div>
             </div>
           </div>
@@ -237,8 +271,8 @@ function CheckoutPageContent() {
             <h2 className="text-lg font-semibold text-gray-900 mb-6">Thông tin hành khách</h2>
             <div className="space-y-8">
               {passengers.map((passenger, index) => (
-                <div key={`${seatIds[index]}-${index}`} className="pb-6 border-b border-gray-200 last:border-0">
-                  <h3 className="font-semibold text-gray-900 mb-4">Hành khách {index + 1} (Ghế {seatIds[index]})</h3>
+                <div key={`${booking.seatIds[index]}-${index}`} className="pb-6 border-b border-gray-200 last:border-0">
+                  <h3 className="font-semibold text-gray-900 mb-4">Hành khách {index + 1} (Ghế {booking.seatCodes[index] ?? booking.seatIds[index]})</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                     <div>
                       <Label htmlFor={`firstName-${index}`} className="text-sm mb-1">Tên</Label>
@@ -355,15 +389,15 @@ function CheckoutPageContent() {
             <div className="mb-6 pb-6 border-b border-gray-200 space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-600">Tàu</span>
-                <span className="font-semibold text-gray-900">{trip.trainName}</span>
+                <span className="font-semibold text-gray-900">{booking.trip.trainName ?? '-'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Tuyến đường</span>
-                <span className="font-semibold text-gray-900">{trip.source} → {trip.destination}</span>
+                <span className="font-semibold text-gray-900">{booking.trip.origin} → {booking.trip.destination}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Hành khách</span>
-                <span className="font-semibold text-gray-900">{seatIds.length}</span>
+                <span className="font-semibold text-gray-900">{booking.seatIds.length}</span>
               </div>
             </div>
 
@@ -399,15 +433,36 @@ function CheckoutPageContent() {
                 disabled={!canSubmit || submitting}
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5"
               >
-                {submitting ? 'Đang tạo đặt vé...' : 'Tiếp tục thanh toán'}
+                {submitting ? 'Đang chuyển đến thanh toán...' : 'Tiếp tục thanh toán'}
               </Button>
-              <Link href={`/booking/seats?tripId=${tripId}`}>
+              <Link href={`/booking/seats?tripId=${booking.trip.id}`}>
                 <Button variant="outline" className="w-full">Quay lại</Button>
               </Link>
             </div>
           </div>
         </div>
       </div>
+
+      <AlertDialog open={showExpiredModal}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Booking đã hết hạn giữ chỗ</AlertDialogTitle>
+            <AlertDialogDescription>
+              Vui lòng quay lại trang tìm kiếm và chọn ghế lại để tiếp tục đặt vé.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={() => {
+                setShowExpiredModal(false);
+                router.replace('/search');
+              }}
+            >
+              Đồng ý
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

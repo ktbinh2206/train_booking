@@ -1,26 +1,31 @@
 'use client';
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Breadcrumb } from '@/components/shared/breadcrumb';
 import { SeatMap } from '@/components/public/seat-map';
 import { Button } from '@/components/ui/button';
 import { AlertCircle, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { VN } from '@/lib/translations';
 import { Carriage, Seat, Trip } from '@/lib/types';
-import { getTripDetail, mapCarriagesToUi, mapSeatsForCarriage } from '@/lib/api';
+import { createBooking, getTripDetail, mapCarriagesToUi, mapSeatsForCarriage } from '@/lib/api';
 import { formatCurrencyVND } from '@/lib/utils';
+import { useAuth } from '@/components/auth/auth-provider';
 
 function BookingSeatsPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const pathname = usePathname();
   const tripId = searchParams.get('tripId') || '';
+  const seedSeats = (searchParams.get('seats') || '').split(',').filter(Boolean);
+  const { user, loading: authLoading } = useAuth();
 
   const [trip, setTrip] = useState<Trip | null>(null);
   const [carriages, setCarriages] = useState<Carriage[]>([]);
   const [carriageSeatsById, setCarriageSeatsById] = useState<Record<string, Seat[]>>({});
-  const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
+  const [selectedSeats, setSelectedSeats] = useState<string[]>(seedSeats);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [carriageGroupIndex, setCarriageGroupIndex] = useState(0);
   const [selectedCarriageId, setSelectedCarriageId] = useState<string | null>(null);
@@ -102,6 +107,37 @@ function BookingSeatsPageContent() {
 
   const selectedSeatObjects = Object.values(carriageSeatsById).flat().filter((seat) => selectedSeats.includes(seat.id));
   const totalPrice = selectedSeatObjects.reduce((sum, seat) => sum + seat.price, 0);
+
+  const handleContinue = async () => {
+    if (!tripId || selectedSeats.length === 0 || submitting || authLoading) {
+      return;
+    }
+
+    if (!user) {
+      const redirect = `${pathname}?tripId=${tripId}&seats=${selectedSeats.join(',')}`;
+      router.push(`/login?redirect=${encodeURIComponent(redirect)}`);
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setError(null);
+
+      const booking = await createBooking({
+        userId: user.id,
+        tripId,
+        seatIds: selectedSeats,
+        contactEmail: user.email
+      });
+
+      router.push(`/booking/checkout?bookingId=${booking.id}`);
+    } catch (unknownError) {
+      const message = unknownError instanceof Error ? unknownError.message : 'Không thể giữ chỗ. Vui lòng thử lại.';
+      setError(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -299,17 +335,11 @@ function BookingSeatsPageContent() {
             {/* Actions */}
             <div className="space-y-2">
               <Button
-                onClick={() => {
-                  
-                  router.push(
-                    `/booking/checkout?tripId=${tripId}&seats=${selectedSeats.join(',')}&total=${Math.round(totalPrice * 1.1)}`
-                  )
-                }
-                }
-                disabled={selectedSeats.length === 0}
+                onClick={() => void handleContinue()}
+                disabled={selectedSeats.length === 0 || submitting || authLoading}
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium"
               >
-                Tiếp tục thanh toán
+                {submitting ? 'Đang giữ chỗ...' : 'Tiếp tục thanh toán'}
               </Button>
               <Button variant="outline" className="w-full">
                 Quay lại

@@ -5,13 +5,29 @@ import { Clock, AlertTriangle } from 'lucide-react';
 
 interface CountdownTimerProps {
   minutes?: number;
+  expiresAtISO?: string | null;
   onExpire?: () => void;
 }
 
-export function CountdownTimer({ minutes = 5, onExpire }: CountdownTimerProps) {
-  const [timeLeft, setTimeLeft] = useState(minutes * 60);
+function getInitialTimeLeft(minutes: number, expiresAtISO?: string | null) {
+  if (!expiresAtISO) {
+    return minutes * 60;
+  }
+
+  const expiresAt = new Date(expiresAtISO).getTime();
+  if (!Number.isFinite(expiresAt)) {
+    return minutes * 60;
+  }
+
+  return Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+}
+
+export function CountdownTimer({ minutes = 5, expiresAtISO, onExpire }: CountdownTimerProps) {
+  const [timeLeft, setTimeLeft] = useState(() => getInitialTimeLeft(minutes, expiresAtISO));
 
   useEffect(() => {
+    setTimeLeft(getInitialTimeLeft(minutes, expiresAtISO));
+
     const interval = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
@@ -24,7 +40,7 @@ export function CountdownTimer({ minutes = 5, onExpire }: CountdownTimerProps) {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [onExpire]);
+  }, [expiresAtISO, minutes, onExpire]);
 
   const mins = Math.floor(timeLeft / 60);
   const secs = timeLeft % 60;
