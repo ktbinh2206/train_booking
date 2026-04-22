@@ -27,7 +27,7 @@ function formatSearchDate(value: string) {
 function ResultsPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [maxPrice, setMaxPrice] = useState(1000000);
+  const [maxPrice, setMaxPrice] = useState(10000000);
   const [sortBy, setSortBy] = useState('recommended');
   const [showFilters, setShowFilters] = useState(true);
   const [trips, setTrips] = useState<Trip[]>([]);

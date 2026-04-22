@@ -11,6 +11,10 @@ interface SeatMapProps {
 }
 
 export function SeatMap({ seats, selectedSeats, onSeatSelect }: SeatMapProps) {
+  if (seats.length === 0) {
+    return <p className="text-sm text-gray-500">Không có dữ liệu ghế.</p>;
+  }
+
   const maxRow = Math.max(...seats.map(s => s.row));
   const maxCol = Math.max(...seats.map(s => s.column));
 
@@ -55,75 +59,66 @@ export function SeatMap({ seats, selectedSeats, onSeatSelect }: SeatMapProps) {
           </div>
         </div>
 
-        {/* Seat Grid */}
-        <div className="space-y-2 flex flex-col items-center">
-          {seatGrid.map((row, rowIndex) => (
-            <div key={rowIndex} className="flex gap-2 justify-center">
-              {/* Row Number */}
-              <div className="w-6 flex items-center justify-center text-xs font-semibold text-gray-500">
-                {rowIndex + 1}
-              </div>
-
-              {/* Aisle space */}
-              <div className="flex gap-2 items-center">
-                {row.slice(0, 3).map((seat, colIndex) =>
-                  seat ? (
-                    <button
-                      key={seat.id}
-                      onClick={() => {
-                        if (seat.status === 'available' || seat.status === 'selected') {
-                          onSeatSelect(seat.id);
-                        }
-                      }}
-                      disabled={seat.status === 'sold' || seat.status === 'holding' || seat.status === 'blocked'}
-                      className={`w-8 h-8 border rounded flex items-center justify-center text-xs font-semibold transition ${
-                        seatStatusStyles[seat.status as keyof typeof seatStatusStyles]
-                      }`}
-                      title={`${seat.seatNumber} - ${formatCurrencyVND(seat.price)}`}
-                    >
-                      {selectedSeats.includes(seat.id) ? '✓' : seat.seatNumber.slice(-1)}
-                    </button>
-                  ) : (
-                    <div key={`empty-${rowIndex}-${colIndex}`} className="w-8 h-8"></div>
-                  )
-                )}
-              </div>
-
-              {/* Aisle */}
-              <div className="w-4 text-center text-xs text-gray-400">|</div>
-
-              {/* Right side seats */}
-              <div className="flex gap-2 items-center">
-                {row.slice(3).map((seat, colIndex) =>
-                  seat ? (
-                    <button
-                      key={seat.id}
-                      onClick={() => {
-                        if (seat.status === 'available' || seat.status === 'selected') {
-                          onSeatSelect(seat.id);
-                        }
-                      }}
-                      disabled={seat.status === 'sold' || seat.status === 'holding' || seat.status === 'blocked'}
-                      className={`w-8 h-8 border rounded flex items-center justify-center text-xs font-semibold transition ${
-                        seatStatusStyles[seat.status as keyof typeof seatStatusStyles]
-                      }`}
-                      title={`${seat.seatNumber} - ${formatCurrencyVND(seat.price)}`}
-                    >
-                      {selectedSeats.includes(seat.id) ? '✓' : seat.seatNumber.slice(-1)}
-                    </button>
-                  ) : (
-                    <div key={`empty-${rowIndex}-${colIndex}`} className="w-8 h-8"></div>
-                  )
-                )}
-              </div>
+        <div className="flex gap-6 items-center justify-center">
+          {/* LEFT: Train head */}
+          <div className="flex flex-col items-center justify-start mt-6 mr-10">
+            <div className="border-l-4 border-gray-400 h-32 relative">
+              <span className="absolute top-1/2 left-1 -translate-y-1/2 text-gray-500 text-xs whitespace-nowrap">
+                Đầu tàu
+              </span>
             </div>
-          ))}
-        </div>
+          </div>
 
-        {/* Screen indicator */}
-        <div className="mt-6 text-center">
-          <div className="inline-block border-t-4 border-gray-400 w-32 h-2 text-gray-500 text-xs relative">
-            <span className="absolute -top-6 left-1/2 -translate-x-1/2">Đầu tàu</span>
+          {/* RIGHT: Seat Grid */}
+          <div className="space-y-2 flex flex-col items-center">
+            {seatGrid.map((row, rowIndex) => (
+              <div key={rowIndex} className="flex gap-2 justify-center">
+                {/* Row Number */}
+                <div className="w-6 flex items-center justify-center text-xs font-semibold text-gray-500">
+                  {rowIndex + 1}
+                </div>
+
+                {/* Seats */}
+                <div className="flex gap-2 items-center">
+                  {row.map((seat, colIndex) =>
+                    seat ? (
+                      (() => {
+                        const isSelected = selectedSeats.includes(seat.id);
+                        const styleKey = isSelected ? 'selected' : seat.status;
+
+                        return (
+                          <button
+                            key={seat.id}
+                            onClick={() => {
+                              if (seat.status === 'available' || isSelected) {
+                                onSeatSelect(seat.id);
+                              }
+                            }}
+                            disabled={
+                              seat.status === 'sold' ||
+                              seat.status === 'holding' ||
+                              seat.status === 'blocked'
+                            }
+                            className={`w-8 h-8 border rounded flex items-center justify-center text-xs font-semibold transition ${seatStatusStyles[
+                              styleKey as keyof typeof seatStatusStyles
+                              ]
+                              }`}
+                            title={`${seat.seatNumber} - ${formatCurrencyVND(seat.price)}`}
+                          >
+                            {isSelected ? '✓' : seat.seatNumber}
+                          </button>
+                        );
+                      })()
+                    ) : (
+                      <div
+                        key={`empty-${rowIndex}-${colIndex}`}
+                        className="w-8 h-8"
+                      ></div>
+                    )
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>

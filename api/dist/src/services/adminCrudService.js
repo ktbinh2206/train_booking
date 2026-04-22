@@ -49,6 +49,9 @@ const prisma_1 = require("../lib/prisma");
 const errors_1 = require("../lib/errors");
 const password_1 = require("../lib/password");
 const bookingService_1 = require("./bookingService");
+function seatIdFromTrainCode(trainCode, carriageCode, seatCode) {
+    return `${trainCode.trim().toUpperCase()}_${carriageCode.trim().toUpperCase()}_${seatCode.trim().toUpperCase()}`;
+}
 function normalizePagination(input) {
     const page = Number.isFinite(input.page) && (input.page ?? 0) > 0 ? Number(input.page) : 1;
     const pageSize = Number.isFinite(input.pageSize) && (input.pageSize ?? 0) > 0
@@ -125,6 +128,11 @@ async function listTrainsAdmin(input) {
             include: {
                 carriages: {
                     include: {
+                        seats: {
+                            select: {
+                                id: true
+                            }
+                        },
                         _count: {
                             select: {
                                 seats: true
@@ -146,7 +154,21 @@ async function listTrainsAdmin(input) {
             take: pageSize
         })
     ]);
-    return toPageResult(items, total, page, pageSize);
+    const data = items.map((train) => {
+        const totalCarriages = train.carriages.length;
+        const totalSeats = train.carriages.reduce((sum, carriage) => sum + carriage._count.seats, 0);
+        const carriagePrices = train.carriages.map((carriage) => Number(carriage.basePrice.toString()));
+        const minPrice = carriagePrices.length > 0 ? Math.min(...carriagePrices) : null;
+        const maxPrice = carriagePrices.length > 0 ? Math.max(...carriagePrices) : null;
+        return {
+            ...train,
+            carriageCount: totalCarriages,
+            seatCount: totalSeats,
+            minCarriagePrice: minPrice,
+            maxCarriagePrice: maxPrice
+        };
+    });
+    return toPageResult(data, total, page, pageSize);
 }
 async function getTrainByIdAdmin(trainId) {
     const train = await prisma_1.prisma.train.findUnique({
@@ -156,7 +178,7 @@ async function getTrainByIdAdmin(trainId) {
                 include: {
                     seats: {
                         orderBy: {
-                            orderIndex: 'asc'
+                            code: 'asc'
                         }
                     }
                 },
@@ -169,7 +191,13 @@ async function getTrainByIdAdmin(trainId) {
     if (!train) {
         throw new errors_1.AppError('Không tìm thấy tàu.', 404);
     }
-    return train;
+    return {
+        ...train,
+        carriages: train.carriages.map((carriage) => ({
+            ...carriage,
+            seatCount: carriage.seats.length
+        }))
+    };
 }
 async function createTrainAdmin(input) {
     return prisma_1.prisma.train.create({
@@ -223,7 +251,7 @@ async function getCarriageByIdAdmin(carriageId) {
             train: true,
             seats: {
                 orderBy: {
-                    orderIndex: 'asc'
+                    code: 'asc'
                 }
             }
         }
@@ -243,7 +271,9 @@ async function createCarriageAdmin(input) {
             trainId: input.trainId,
             code: input.code.trim().toUpperCase(),
             orderIndex: input.orderIndex,
-            type: input.type
+            type: input.type,
+            basePrice: input.basePrice === undefined ? undefined : new decimal_js_1.default(input.basePrice),
+            layout: input.layout
         }
     });
 }
@@ -255,6 +285,10 @@ async function updateCarriageAdmin(carriageId, input) {
         data.orderIndex = input.orderIndex;
     if (input.type !== undefined)
         data.type = input.type;
+    if (input.basePrice !== undefined)
+        data.basePrice = new decimal_js_1.default(input.basePrice);
+    if (input.layout !== undefined)
+        data.layout = input.layout;
     return prisma_1.prisma.carriage.update({
         where: { id: carriageId },
         data
@@ -278,7 +312,7 @@ async function listSeatsAdmin(input) {
                     }
                 }
             },
-            orderBy: [{ carriage: { orderIndex: 'asc' } }, { orderIndex: 'asc' }],
+            orderBy: [{ carriage: { orderIndex: 'asc' } }, { code: 'asc' }],
             skip,
             take: pageSize
         })
@@ -302,27 +336,45 @@ async function getSeatByIdAdmin(seatId) {
     return seat;
 }
 async function createSeatAdmin(input) {
-    const carriage = await prisma_1.prisma.carriage.findUnique({ where: { id: input.carriageId } });
+    const carriage = await prisma_1.prisma.carriage.findUnique({ where: { id: input.carriageId }, include: { train: true } });
     if (!carriage) {
         throw new errors_1.AppError('Toa không tồn tại.', 404);
     }
+    const code = input.code.trim().toUpperCase();
     return prisma_1.prisma.seat.create({
         data: {
+            id: seatIdFromTrainCode(carriage.train.code, carriage.code, code),
             carriageId: input.carriageId,
-            code: input.code.trim().toUpperCase(),
-            orderIndex: input.orderIndex,
-            status: input.status ?? 'ACTIVE'
+            code,
+            status: input.status ?? 'ACTIVE',
+            price: input.price === undefined || input.price === null ? null : new decimal_js_1.default(input.price)
         }
     });
 }
 async function updateSeatAdmin(seatId, input) {
+    const current = await prisma_1.prisma.seat.findUnique({
+        where: { id: seatId },
+        include: {
+            carriage: {
+                include: {
+                    train: true
+                }
+            }
+        }
+    });
+    if (!current) {
+        throw new errors_1.AppError('Không tìm thấy ghế.', 404);
+    }
     const data = {};
-    if (input.code !== undefined)
-        data.code = input.code.trim().toUpperCase();
-    if (input.orderIndex !== undefined)
-        data.orderIndex = input.orderIndex;
+    if (input.code !== undefined) {
+        const code = input.code.trim().toUpperCase();
+        data.code = code;
+        data.id = seatIdFromTrainCode(current.carriage.train.code, current.carriage.code, code);
+    }
     if (input.status !== undefined)
         data.status = input.status;
+    if (input.price !== undefined)
+        data.price = input.price === null ? null : new decimal_js_1.default(input.price);
     return prisma_1.prisma.seat.update({
         where: { id: seatId },
         data

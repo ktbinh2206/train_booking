@@ -63,8 +63,8 @@ export function TrainFormModal({
   const carriages = train?.carriages ?? [];
 
   const carriagePreviewLayout = (carriage: AdminTrainDetailCarriage): TrainSeatGrid => {
-    if (carriage.layoutJson) {
-      return layoutJsonToTrainGrid(carriage.layoutJson);
+    if (carriage.layout) {
+      return layoutJsonToTrainGrid(carriage.layout);
     }
 
     const rows = Math.max(1, Math.ceil(Math.max(carriage.seatCount, carriage.seats.length) / 4));
@@ -89,7 +89,7 @@ export function TrainFormModal({
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-7xl overflow-y-auto">
+      <DialogContent className="sm:max-h-[90vh] sm:max-w-[90vw] overflow-auto">
         <DialogHeader>
           <DialogTitle>{mode === 'create' ? 'Tạo tàu' : 'Sửa tàu'}</DialogTitle>
           <DialogDescription>Toàn bộ flow quản lý tàu nằm trong một modal duy nhất.</DialogDescription>

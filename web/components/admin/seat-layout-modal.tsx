@@ -55,7 +55,7 @@ export function SeatLayoutModal({
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+      <DialogContent className="sm:max-h-[90vh] sm:max-w-[90vw] overflow-auto">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>Click để toggle ghế. Layout trả về dạng Cell[][], seatNumber auto-generate A1, A2...</DialogDescription>

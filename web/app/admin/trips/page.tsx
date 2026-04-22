@@ -2,16 +2,19 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Plus, Edit2, Trash2, Search } from 'lucide-react';
+import { Plus, Edit2, Eye, Trash2, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
+  getAdminCarriages,
   createAdminTrip,
   deleteAdminTrip,
+  getAdminTripDetail,
   getAdminStations,
   getAdminTrains,
   getAdminTrips,
   updateAdminTrip
 } from '@/lib/api';
+import { TripBuilderModal } from '@/components/admin/trip-builder-modal';
 
 export default function TripsPage() {
   const [search, setSearch] = useState('');
@@ -22,16 +25,12 @@ export default function TripsPage() {
   const [trains, setTrains] = useState<Awaited<ReturnType<typeof getAdminTrains>>['data']>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [showCreate, setShowCreate] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    trainId: '',
-    originStationId: '',
-    destinationStationId: '',
-    departureTime: '',
-    arrivalTime: '',
-    price: ''
-  });
+  const [templates, setTemplates] = useState<Awaited<ReturnType<typeof getAdminCarriages>>['data']>([]);
+  const [showBuilder, setShowBuilder] = useState(false);
+  const [builderMode, setBuilderMode] = useState<'create' | 'edit' | 'view'>('create');
+  const [activeTripId, setActiveTripId] = useState<string | null>(null);
+  const [activeTripDetail, setActiveTripDetail] = useState<Awaited<ReturnType<typeof getAdminTripDetail>> | null>(null);
+  const [loadingTripDetail, setLoadingTripDetail] = useState(false);
 
   const loadTrips = async (targetPage = page) => {
     setLoading(true);
@@ -56,10 +55,11 @@ export default function TripsPage() {
       try {
         setLoading(true);
         setError(null);
-        const [tripsData, stationsData, trainsData] = await Promise.all([
+        const [tripsData, stationsData, trainsData, templatesData] = await Promise.all([
           getAdminTrips({ page: 1, pageSize: 10 }),
           getAdminStations({ page: 1, pageSize: 200 }),
-          getAdminTrains({ page: 1, pageSize: 200 })
+          getAdminTrains({ page: 1, pageSize: 200 }),
+          getAdminCarriages({ page: 1, pageSize: 200 })
         ]);
         if (active) {
           setTrips(tripsData.data);
@@ -67,6 +67,7 @@ export default function TripsPage() {
           setTotalPages(tripsData.totalPages);
           setStations(stationsData.data);
           setTrains(trainsData.data);
+          setTemplates(templatesData.data);
         }
       } catch (unknownError) {
         if (!active) return;
@@ -106,68 +107,44 @@ export default function TripsPage() {
     }
   };
 
-  const resetForm = () => {
-    setForm({
-      trainId: trains[0]?.id ?? '',
-      originStationId: '',
-      destinationStationId: '',
-      departureTime: '',
-      arrivalTime: '',
-      price: ''
-    });
-    setEditingId(null);
-    setShowCreate(false);
-  };
-
-  const handleEdit = (tripId: string) => {
-    const trip = trips.find((item) => item.id === tripId);
-    if (!trip) return;
-
-    setEditingId(trip.id);
-    setShowCreate(true);
-    setForm({
-      trainId: trip.trainId,
-      originStationId: trip.originStationId ?? '',
-      destinationStationId: trip.destinationStationId ?? '',
-      departureTime: new Date(trip.departureTime).toISOString().slice(0, 16),
-      arrivalTime: new Date(trip.arrivalTime).toISOString().slice(0, 16),
-      price: String(trip.price)
-    });
-  };
-
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!form.trainId || !form.originStationId || !form.destinationStationId || !form.departureTime || !form.arrivalTime || !form.price) {
-      setError('Vui lòng nhập đầy đủ thông tin chuyến tàu.');
-      return;
-    }
-    if (form.originStationId === form.destinationStationId) {
-      setError('Ga đi và ga đến phải khác nhau.');
-      return;
-    }
-
+  const handleCreateTrip = async (payload: Parameters<typeof createAdminTrip>[0]) => {
     try {
       setError(null);
-      const payload = {
-        trainId: form.trainId,
-        originStationId: form.originStationId,
-        destinationStationId: form.destinationStationId,
-        departureTime: new Date(form.departureTime).toISOString(),
-        arrivalTime: new Date(form.arrivalTime).toISOString(),
-        price: Number(form.price)
-      };
-
-      if (editingId) {
-        await updateAdminTrip(editingId, payload);
+      if (builderMode === 'edit' && activeTripId) {
+        await updateAdminTrip(activeTripId, {
+          trainId: payload.trainId,
+          originStationId: payload.originStationId,
+          destinationStationId: payload.destinationStationId,
+          departureTime: payload.departureTime,
+          arrivalTime: payload.arrivalTime,
+          price: payload.price
+        });
       } else {
         await createAdminTrip(payload);
       }
-
-      resetForm();
+      setShowBuilder(false);
+      setActiveTripId(null);
+      setActiveTripDetail(null);
       await loadTrips(page);
     } catch (unknownError) {
-      const message = unknownError instanceof Error ? unknownError.message : 'Lưu chuyến tàu thất bại.';
-      setError(message);
+      setError(unknownError instanceof Error ? unknownError.message : 'Luu chuyen tau that bai.');
+    }
+  };
+
+  const openBuilderWithTrip = async (tripId: string, mode: 'edit' | 'view') => {
+    try {
+      setError(null);
+      setBuilderMode(mode);
+      setActiveTripId(tripId);
+      setLoadingTripDetail(true);
+      setShowBuilder(true);
+      const detail = await getAdminTripDetail(tripId);
+      setActiveTripDetail(detail);
+    } catch (unknownError) {
+      setShowBuilder(false);
+      setError(unknownError instanceof Error ? unknownError.message : 'Khong the tai chi tiet chuyen tau.');
+    } finally {
+      setLoadingTripDetail(false);
     }
   };
 
@@ -188,46 +165,15 @@ export default function TripsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">Quản lý chuyến tàu</h1>
         <Button className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2" onClick={() => {
-          setShowCreate((previous) => !previous);
-          if (!showCreate) {
-            resetForm();
-            setShowCreate(true);
-          }
+          setBuilderMode('create');
+          setActiveTripId(null);
+          setActiveTripDetail(null);
+          setShowBuilder(true);
         }}>
           <Plus className="w-4 h-4" />
-          {showCreate ? 'Đóng form' : 'Thêm chuyến'}
+          Thêm chuyến
         </Button>
       </div>
-
-      {showCreate && (
-        <form onSubmit={handleSubmit} className="bg-white rounded-lg border border-gray-200 p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-          <select className="px-3 py-2 border rounded" value={form.trainId} onChange={(event) => setForm((previous) => ({ ...previous, trainId: event.target.value }))}>
-            <option value="">Chọn tàu</option>
-            {trains.map((train) => (
-              <option key={train.id} value={train.id}>{train.code} - {train.name}</option>
-            ))}
-          </select>
-          <select className="px-3 py-2 border rounded" value={form.originStationId} onChange={(event) => setForm((previous) => ({ ...previous, originStationId: event.target.value }))}>
-            <option value="">Chọn ga đi</option>
-            {stations.map((station) => (
-              <option key={station.id} value={station.id}>{station.code} - {station.name}</option>
-            ))}
-          </select>
-          <select className="px-3 py-2 border rounded" value={form.destinationStationId} onChange={(event) => setForm((previous) => ({ ...previous, destinationStationId: event.target.value }))}>
-            <option value="">Chọn ga đến</option>
-            {stations.map((station) => (
-              <option key={station.id} value={station.id}>{station.code} - {station.name}</option>
-            ))}
-          </select>
-          <input type="datetime-local" className="px-3 py-2 border rounded" value={form.departureTime} onChange={(event) => setForm((previous) => ({ ...previous, departureTime: event.target.value }))} />
-          <input type="datetime-local" className="px-3 py-2 border rounded" value={form.arrivalTime} onChange={(event) => setForm((previous) => ({ ...previous, arrivalTime: event.target.value }))} />
-          <input type="number" min="0" className="px-3 py-2 border rounded" placeholder="Giá vé" value={form.price} onChange={(event) => setForm((previous) => ({ ...previous, price: event.target.value }))} />
-          <div className="md:col-span-3 flex gap-2">
-            <Button type="submit" className="bg-blue-600 hover:bg-blue-700">{editingId ? 'Cập nhật chuyến' : 'Tạo chuyến'}</Button>
-            <Button type="button" variant="outline" onClick={resetForm}>Hủy</Button>
-          </div>
-        </form>
-      )}
 
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <div className="flex gap-3 mb-4">
@@ -272,8 +218,11 @@ export default function TripsPage() {
                       </span>
                     </td>
                     <td className="px-6 py-3 flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleEdit(trip.id)}>
+                      <Button variant="outline" size="sm" onClick={() => void openBuilderWithTrip(trip.id, 'edit')}>
                         <Edit2 className="w-4 h-4" />
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => void openBuilderWithTrip(trip.id, 'view')}>
+                        <Eye className="w-4 h-4" />
                       </Button>
                       <Button variant="outline" size="sm" className="text-red-600" onClick={() => handleDelete(trip.id)}>
                         <Trash2 className="w-4 h-4" />
@@ -294,6 +243,22 @@ export default function TripsPage() {
           </div>
         )}
       </div>
+
+      <TripBuilderModal
+        open={showBuilder}
+        mode={builderMode}
+        trains={trains}
+        stations={stations}
+        templates={templates}
+        initialTrip={activeTripDetail}
+        loadingInitial={loadingTripDetail}
+        onClose={() => {
+          setShowBuilder(false);
+          setActiveTripId(null);
+          setActiveTripDetail(null);
+        }}
+        onSave={handleCreateTrip}
+      />
     </div>
   );
 }

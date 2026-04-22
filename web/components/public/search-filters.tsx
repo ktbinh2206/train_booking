@@ -36,7 +36,7 @@ export function SearchFilters({ maxPrice, onFilterChange }: SearchFiltersProps) 
         <input
           type="range"
           min="100000"
-          max="5000000"
+          max="10000000"
           step="50000"
           defaultValue={maxPrice}
           onChange={handlePriceChange}
@@ -44,7 +44,7 @@ export function SearchFilters({ maxPrice, onFilterChange }: SearchFiltersProps) 
         />
         <div className="flex justify-between text-xs text-gray-500 mt-2">
           <span>{formatCurrencyVND(100000)}</span>
-          <span>{formatCurrencyVND(5000000)}</span>
+          <span>{formatCurrencyVND(10000000)}</span>
         </div>
       </div>
 

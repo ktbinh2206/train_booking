@@ -219,7 +219,7 @@ function BookingSeatsPageContent() {
                     <div className="text-center mb-3">
                       <div className="text-xl font-bold text-gray-900 mb-1">Toa {carriage.number}</div>
                       <div className="text-xs text-gray-600 mb-2">{carriage.type.replace('_', ' ')}</div>
-                      <div className="text-sm font-semibold text-blue-600">{selectedCount}/{totalSeats}</div>
+                      <div className="text-sm font-semibold text-blue-600">{totalSeats - availableSeats}/{totalSeats}</div>
                     </div>
                     <div className="text-xs text-gray-600 text-center">
                       {availableSeats} / {totalSeats} còn trống
@@ -299,10 +299,12 @@ function BookingSeatsPageContent() {
             {/* Actions */}
             <div className="space-y-2">
               <Button
-                onClick={() =>
+                onClick={() => {
+                  
                   router.push(
                     `/booking/checkout?tripId=${tripId}&seats=${selectedSeats.join(',')}&total=${Math.round(totalPrice * 1.1)}`
                   )
+                }
                 }
                 disabled={selectedSeats.length === 0}
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium"

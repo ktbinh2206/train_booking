@@ -11,12 +11,17 @@ exports.getBookingById = getBookingById;
 exports.cancelBooking = cancelBooking;
 const crypto_1 = require("crypto");
 const decimal_js_1 = __importDefault(require("decimal.js"));
+const client_1 = require("@prisma/client");
 const prisma_1 = require("../lib/prisma");
 const errors_1 = require("../lib/errors");
 const dates_1 = require("../lib/dates");
 const communications_1 = require("../lib/communications");
 const qr_1 = require("../lib/qr");
 const bookingHelpers_1 = require("../lib/bookingHelpers");
+const notificationService_1 = require("./notificationService");
+function getEffectiveDepartureTime(trip) {
+    return trip.delayedDepartureTime ?? trip.departureTime;
+}
 async function createBooking(input) {
     if (input.seatIds.length === 0) {
         throw new errors_1.AppError('Phải chọn ít nhất 1 ghế.', 400);
@@ -62,8 +67,9 @@ async function createBooking(input) {
             code: bookingCode,
             userId: input.userId,
             tripId: trip.id,
-            status: 'HOLDING',
+            status: client_1.BookingStatus.HOLDING,
             holdExpiresAt,
+            expiredAt: holdExpiresAt,
             totalAmount: new decimal_js_1.default(totalAmount.toString()),
             contactEmail: input.contactEmail,
             seatCount: input.seatIds.length,
@@ -89,19 +95,12 @@ async function createBooking(input) {
             bookingSeats: true
         }
     });
-    await (0, communications_1.createNotification)({
+    await (0, notificationService_1.sendNotification)({
         userId: input.userId,
         bookingId: booking.id,
-        type: 'BOOKING_HELD',
-        message: `Đặt chỗ thành công cho ${booking.code}. Hết hạn giữ chỗ lúc ${holdExpiresAt.toISOString()}.`
-    });
-    await (0, communications_1.recordEmail)({
-        userId: input.userId,
-        bookingId: booking.id,
-        toEmail: input.contactEmail,
-        subject: 'Giữ chỗ vé tàu thành công',
-        kind: 'BOOKING_HELD',
-        html: `<p>Booking ${booking.code} đã được giữ chỗ đến ${holdExpiresAt.toLocaleString('vi-VN')}.</p>`
+        type: 'HOLD_EXPIRE',
+        message: `Đặt chỗ thành công cho ${booking.code}. Hết hạn giữ chỗ lúc ${holdExpiresAt.toISOString()}.`,
+        toEmail: input.contactEmail
     });
     return booking;
 }
@@ -120,7 +119,7 @@ async function payBooking(bookingId) {
     if (!booking) {
         throw new errors_1.AppError('Không tìm thấy booking.', 404);
     }
-    if (booking.status !== 'HOLDING') {
+    if (booking.status !== client_1.BookingStatus.HOLDING) {
         throw new errors_1.AppError('Booking không ở trạng thái chờ thanh toán.', 400);
     }
     if (!booking.holdExpiresAt || booking.holdExpiresAt.getTime() <= now.getTime()) {
@@ -143,7 +142,10 @@ async function payBooking(bookingId) {
         });
         await transaction.booking.update({
             where: { id: booking.id },
-            data: { status: 'PAID' }
+            data: {
+                status: client_1.BookingStatus.PAID,
+                expiredAt: null
+            }
         });
         await transaction.ticket.create({
             data: {
@@ -155,48 +157,22 @@ async function payBooking(bookingId) {
                 invoiceNumber
             }
         });
-        await transaction.notification.createMany({
-            data: [
-                {
-                    userId: booking.userId,
-                    bookingId: booking.id,
-                    type: 'BOOKING_PAID',
-                    message: `Thanh toán thành công cho booking ${booking.code}.`
-                },
-                {
-                    userId: booking.userId,
-                    bookingId: booking.id,
-                    type: 'INVOICE_SENT',
-                    message: `Hóa đơn điện tử ${invoiceNumber} đã được gửi qua email.`
-                }
-            ]
-        });
-        await transaction.emailLog.createMany({
-            data: [
-                {
-                    userId: booking.userId,
-                    bookingId: booking.id,
-                    kind: 'BOOKING_PAID',
-                    subject: 'Vé tàu đã được xác nhận',
-                    toEmail: booking.contactEmail,
-                    html: (0, communications_1.buildInvoiceHtml)({
-                        bookingCode: booking.code,
-                        ticketNumber,
-                        tripLabel: `${booking.trip.origin} - ${booking.trip.destination}`,
-                        seatLabels,
-                        amount: booking.totalAmount,
-                        customerName: booking.user.name
-                    })
-                },
-                {
-                    userId: booking.userId,
-                    bookingId: booking.id,
-                    kind: 'INVOICE_SENT',
-                    subject: `Hóa đơn điện tử ${invoiceNumber}`,
-                    toEmail: booking.contactEmail,
-                    html: `<p>Hóa đơn ${invoiceNumber} cho booking ${booking.code}.</p>`
-                }
-            ]
+        await transaction.emailLog.create({
+            data: {
+                userId: booking.userId,
+                bookingId: booking.id,
+                kind: 'BOOKING_PAID',
+                subject: 'Vé tàu đã được xác nhận',
+                toEmail: booking.contactEmail,
+                html: (0, communications_1.buildInvoiceHtml)({
+                    bookingCode: booking.code,
+                    ticketNumber,
+                    tripLabel: `${booking.trip.origin} - ${booking.trip.destination}`,
+                    seatLabels,
+                    amount: booking.totalAmount,
+                    customerName: booking.user.name
+                })
+            }
         });
         return transaction.booking.findUniqueOrThrow({
             where: { id: booking.id },
@@ -209,26 +185,35 @@ async function payBooking(bookingId) {
             }
         });
     });
+    await (0, notificationService_1.sendNotification)({
+        userId: booking.userId,
+        bookingId: booking.id,
+        type: 'REMINDER',
+        message: `Thanh toán thành công cho booking ${booking.code}.`,
+        toEmail: booking.contactEmail
+    });
     return updatedBooking;
 }
 async function expireBooking(bookingId, reason = 'Hết hạn giữ chỗ.') {
     const booking = await prisma_1.prisma.booking.findUnique({ where: { id: bookingId } });
-    if (!booking || booking.status !== 'HOLDING') {
+    if (!booking || booking.status !== client_1.BookingStatus.HOLDING) {
         return null;
     }
-    const expiredBooking = await prisma_1.prisma.booking.update({
+    const cancelledBooking = await prisma_1.prisma.booking.update({
         where: { id: bookingId },
-        data: { status: 'EXPIRED' }
-    });
-    await prisma_1.prisma.notification.create({
         data: {
-            userId: booking.userId,
-            bookingId: booking.id,
-            type: 'BOOKING_EXPIRED',
-            message: reason
+            status: client_1.BookingStatus.CANCELLED,
+            expiredAt: new Date()
         }
     });
-    return expiredBooking;
+    await (0, notificationService_1.sendNotification)({
+        userId: booking.userId,
+        bookingId: booking.id,
+        type: 'HOLD_EXPIRE',
+        message: reason,
+        toEmail: booking.contactEmail
+    });
+    return cancelledBooking;
 }
 async function listBookings(input) {
     const where = {};
@@ -255,7 +240,8 @@ async function listBookings(input) {
             user: true,
             bookingSeats: { include: { seat: true } },
             payment: true,
-            ticket: true
+            ticket: true,
+            refunds: true
         },
         orderBy: { createdAt: 'desc' }
     });
@@ -268,7 +254,8 @@ async function getBookingById(bookingId) {
             user: true,
             bookingSeats: { include: { seat: true } },
             payment: true,
-            ticket: true
+            ticket: true,
+            refunds: true
         }
     });
 }
@@ -280,80 +267,76 @@ async function cancelBooking(input) {
             user: true,
             bookingSeats: { include: { seat: true } },
             payment: true,
-            ticket: true
+            ticket: true,
+            refunds: true
         }
     });
     if (!booking) {
         throw new errors_1.AppError('Không tìm thấy booking.', 404);
     }
-    if (booking.status === 'HOLDING') {
-        await prisma_1.prisma.booking.update({
+    if (booking.status === client_1.BookingStatus.CANCELLED || booking.status === client_1.BookingStatus.REFUNDED || booking.status === client_1.BookingStatus.EXPIRED) {
+        throw new errors_1.AppError('Booking đã được hủy trước đó.', 400);
+    }
+    const departureTime = getEffectiveDepartureTime(booking.trip);
+    if (departureTime.getTime() <= Date.now()) {
+        throw new errors_1.AppError('Không thể hủy vé sau giờ tàu chạy.', 400);
+    }
+    const reason = input.reason ?? 'Bạn đã hủy vé thành công';
+    const updatedBooking = await prisma_1.prisma.$transaction(async (transaction) => {
+        const nextStatus = booking.status === client_1.BookingStatus.PAID ? client_1.BookingStatus.CANCELLED : client_1.BookingStatus.CANCELLED;
+        await transaction.booking.update({
             where: { id: booking.id },
-            data: { status: 'CANCELLED' }
+            data: {
+                status: nextStatus,
+                expiredAt: new Date()
+            }
         });
-        await (0, communications_1.createNotification)({
-            userId: booking.userId,
-            bookingId: booking.id,
-            type: 'TRIP_CANCELLED',
-            message: input.reason
-        });
-        return prisma_1.prisma.booking.findUniqueOrThrow({
+        if (booking.status === client_1.BookingStatus.PAID) {
+            await transaction.payment.update({
+                where: { bookingId: booking.id },
+                data: {
+                    status: 'REFUNDED',
+                    refundedAt: new Date(),
+                    transactionRef: `REFUND-${(0, crypto_1.randomUUID)().slice(0, 12).toUpperCase()}`
+                }
+            });
+            await transaction.refund.create({
+                data: {
+                    bookingId: booking.id,
+                    amount: booking.totalAmount,
+                    status: 'COMPLETED',
+                    reason
+                }
+            });
+        }
+        return transaction.booking.findUniqueOrThrow({
             where: { id: booking.id },
             include: {
                 trip: { include: { train: true } },
                 user: true,
                 bookingSeats: { include: { seat: true } },
                 payment: true,
-                ticket: true
-            }
-        });
-    }
-    if (booking.status !== 'PAID') {
-        throw new errors_1.AppError('Chỉ booking chờ thanh toán hoặc đã thanh toán mới có thể hủy.', 400);
-    }
-    if (!input.refund) {
-        throw new errors_1.AppError('Booking đã thanh toán cần xác nhận hoàn tiền khi hủy.', 400);
-    }
-    await prisma_1.prisma.$transaction(async (transaction) => {
-        await transaction.booking.update({
-            where: { id: booking.id },
-            data: { status: 'REFUNDED' }
-        });
-        await transaction.payment.update({
-            where: { bookingId: booking.id },
-            data: {
-                status: 'REFUNDED',
-                refundedAt: new Date(),
-                transactionRef: `REFUND-${(0, crypto_1.randomUUID)().slice(0, 12).toUpperCase()}`
-            }
-        });
-        await transaction.notification.create({
-            data: {
-                userId: booking.userId,
-                bookingId: booking.id,
-                type: 'REFUND_ISSUED',
-                message: input.reason
+                ticket: true,
+                refunds: true
             }
         });
     });
-    return prisma_1.prisma.booking.findUniqueOrThrow({
-        where: { id: booking.id },
-        include: {
-            trip: { include: { train: true } },
-            user: true,
-            bookingSeats: { include: { seat: true } },
-            payment: true,
-            ticket: true
-        }
+    await (0, notificationService_1.sendNotification)({
+        userId: booking.userId,
+        bookingId: booking.id,
+        type: 'CANCEL',
+        message: reason,
+        toEmail: booking.contactEmail
     });
+    return updatedBooking;
 }
 async function getReservedSeatIds(tripId, now) {
     const bookings = await prisma_1.prisma.booking.findMany({
         where: {
             tripId,
             OR: [
-                { status: 'PAID' },
-                { status: 'HOLDING', holdExpiresAt: { gt: now } }
+                { status: client_1.BookingStatus.PAID },
+                { status: client_1.BookingStatus.HOLDING, holdExpiresAt: { gt: now } }
             ]
         },
         include: { bookingSeats: true }

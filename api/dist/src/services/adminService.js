@@ -26,6 +26,7 @@ const decimal_js_1 = __importDefault(require("decimal.js"));
 const prisma_1 = require("../lib/prisma");
 const errors_1 = require("../lib/errors");
 const communications_1 = require("../lib/communications");
+const notificationService_1 = require("./notificationService");
 async function createTrip(input) {
     return prisma_1.prisma.trip.create({
         data: {
@@ -86,7 +87,10 @@ async function setTripStatus(tripId, input) {
         where: { id: tripId },
         data: {
             status: input.status,
-            delayMinutes: input.delayMinutes ?? trip.delayMinutes,
+            delayMinutes: input.status === 'DELAYED' ? (input.delayMinutes ?? trip.delayMinutes) : 0,
+            delayedDepartureTime: input.status === 'DELAYED'
+                ? new Date(trip.departureTime.getTime() + (input.delayMinutes ?? trip.delayMinutes) * 60_000)
+                : null,
             note: input.note ?? trip.note
         },
         include: { train: true }
@@ -94,10 +98,14 @@ async function setTripStatus(tripId, input) {
     if (input.status === 'DELAYED') {
         for (const booking of trip.bookings) {
             if (booking.status === 'PAID' || booking.status === 'HOLDING') {
-                await (0, communications_1.createNotification)({
+                await prisma_1.prisma.booking.update({
+                    where: { id: booking.id },
+                    data: { isAffected: true }
+                });
+                await (0, notificationService_1.sendNotification)({
                     userId: booking.userId,
                     bookingId: booking.id,
-                    type: 'TRIP_DELAYED',
+                    type: 'DELAY',
                     message: `Chuyến ${trip.origin} - ${trip.destination} bị delay ${updatedTrip.delayMinutes} phút.`
                 });
                 await (0, communications_1.recordEmail)({
@@ -105,7 +113,7 @@ async function setTripStatus(tripId, input) {
                     bookingId: booking.id,
                     toEmail: booking.contactEmail,
                     subject: 'Thông báo delay chuyến tàu',
-                    kind: 'TRIP_DELAYED',
+                    kind: 'DELAY',
                     html: `<p>Chuyến ${trip.origin} - ${trip.destination} bị delay ${updatedTrip.delayMinutes} phút.</p>`
                 });
             }
@@ -114,7 +122,14 @@ async function setTripStatus(tripId, input) {
     if (input.status === 'CANCELLED') {
         for (const booking of trip.bookings) {
             if (booking.status === 'PAID') {
-                await prisma_1.prisma.booking.update({ where: { id: booking.id }, data: { status: 'REFUNDED' } });
+                await prisma_1.prisma.booking.update({
+                    where: { id: booking.id },
+                    data: {
+                        status: 'CANCELLED',
+                        isAffected: true,
+                        expiredAt: new Date()
+                    }
+                });
                 await prisma_1.prisma.payment.update({
                     where: { bookingId: booking.id },
                     data: {
@@ -123,10 +138,18 @@ async function setTripStatus(tripId, input) {
                         transactionRef: `AUTO-REFUND-${(0, crypto_1.randomUUID)().slice(0, 10).toUpperCase()}`
                     }
                 });
-                await (0, communications_1.createNotification)({
+                await prisma_1.prisma.refund.create({
+                    data: {
+                        bookingId: booking.id,
+                        amount: booking.totalAmount,
+                        status: 'COMPLETED',
+                        reason: `Chuyến ${trip.origin} - ${trip.destination} bị hủy bởi admin`
+                    }
+                });
+                await (0, notificationService_1.sendNotification)({
                     userId: booking.userId,
                     bookingId: booking.id,
-                    type: 'REFUND_ISSUED',
+                    type: 'CANCEL',
                     message: `Chuyến ${trip.origin} - ${trip.destination} bị hủy. Vé đã được hoàn tiền.`
                 });
                 await (0, communications_1.recordEmail)({
@@ -134,16 +157,23 @@ async function setTripStatus(tripId, input) {
                     bookingId: booking.id,
                     toEmail: booking.contactEmail,
                     subject: 'Hoàn tiền do hủy chuyến',
-                    kind: 'REFUND_ISSUED',
+                    kind: 'CANCEL',
                     html: `<p>Chuyến ${trip.origin} - ${trip.destination} bị hủy. Vé đã được hoàn tiền.</p>`
                 });
             }
             if (booking.status === 'HOLDING') {
-                await prisma_1.prisma.booking.update({ where: { id: booking.id }, data: { status: 'CANCELLED' } });
-                await (0, communications_1.createNotification)({
+                await prisma_1.prisma.booking.update({
+                    where: { id: booking.id },
+                    data: {
+                        status: 'CANCELLED',
+                        isAffected: true,
+                        expiredAt: new Date()
+                    }
+                });
+                await (0, notificationService_1.sendNotification)({
                     userId: booking.userId,
                     bookingId: booking.id,
-                    type: 'TRIP_CANCELLED',
+                    type: 'CANCEL',
                     message: `Chuyến ${trip.origin} - ${trip.destination} đã bị hủy.`
                 });
             }
@@ -204,7 +234,7 @@ async function deleteCarriage(carriageId) {
     return { success: true };
 }
 async function bulkCreateSeats(input) {
-    const carriage = await prisma_1.prisma.carriage.findUnique({ where: { id: input.carriageId } });
+    const carriage = await prisma_1.prisma.carriage.findUnique({ where: { id: input.carriageId }, include: { train: true } });
     if (!carriage) {
         throw new errors_1.AppError('Không tìm thấy toa.', 404);
     }
@@ -212,12 +242,14 @@ async function bulkCreateSeats(input) {
     const seats = await prisma_1.prisma.seat.createMany({
         data: Array.from({ length: input.count }, (_, index) => {
             const seatNumber = existingSeats + index + 1;
+            const seatCode = `${input.prefix ?? carriage.code}-${seatNumber.toString().padStart(2, '0')}`;
             return {
+                id: `${carriage.train.code}_${carriage.code}_${seatCode.toUpperCase()}`,
                 carriageId: input.carriageId,
-                code: `${input.prefix ?? carriage.code}-${seatNumber.toString().padStart(2, '0')}`,
-                orderIndex: seatNumber
+                code: seatCode
             };
-        })
+        }),
+        skipDuplicates: true
     });
     return { created: seats.count };
 }

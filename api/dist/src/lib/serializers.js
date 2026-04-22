@@ -5,6 +5,7 @@ exports.serializeTrip = serializeTrip;
 exports.serializeBooking = serializeBooking;
 exports.serializeNotification = serializeNotification;
 exports.serializeTrain = serializeTrain;
+exports.resolveSeatCode = resolveSeatCode;
 function moneyToNumber(value) {
     return value.toNumber();
 }
@@ -21,6 +22,7 @@ function serializeTrip(trip) {
         price: moneyToNumber(trip.price),
         status: trip.status,
         delayMinutes: trip.delayMinutes,
+        delayedDepartureTime: trip.delayedDepartureTime?.toISOString() ?? null,
         note: trip.note
     };
 }
@@ -30,11 +32,13 @@ function serializeBooking(booking) {
         code: booking.code,
         status: booking.status,
         holdExpiresAt: booking.holdExpiresAt?.toISOString() ?? null,
+        expiredAt: booking.expiredAt?.toISOString() ?? null,
+        isAffected: booking.isAffected,
         totalAmount: moneyToNumber(booking.totalAmount),
         contactEmail: booking.contactEmail,
         seatCount: booking.seatCount,
         seatIds: booking.bookingSeats?.map((item) => item.seatId) ?? [],
-        seatCodes: booking.bookingSeats?.map((item) => item.seat?.code).filter((code) => Boolean(code)) ?? [],
+        seatCodes: booking.bookingSeats?.map((item) => item.seat?.seatNumber).filter((code) => Boolean(code)) ?? [],
         user: {
             id: booking.user.id,
             name: booking.user.name,
@@ -63,7 +67,14 @@ function serializeBooking(booking) {
                 issuedAt: booking.ticket.issuedAt.toISOString(),
                 invoiceNumber: booking.ticket.invoiceNumber
             }
-            : null
+            : null,
+        refunds: booking.refunds?.map((refund) => ({
+            id: refund.id,
+            amount: moneyToNumber(refund.amount),
+            status: refund.status,
+            reason: refund.reason,
+            createdAt: refund.createdAt.toISOString()
+        })) ?? []
     };
 }
 function serializeNotification(notification) {
@@ -81,18 +92,9 @@ function serializeTrain(train) {
     return {
         id: train.id,
         code: train.code,
-        name: train.name,
-        carriages: train.carriages?.map((carriage) => ({
-            id: carriage.id,
-            code: carriage.code,
-            orderIndex: carriage.orderIndex,
-            seats: carriage.seats?.map((seat) => ({
-                id: seat.id,
-                code: seat.code,
-                orderIndex: seat.orderIndex,
-                status: seat.status,
-                carriageId: seat.carriageId
-            })) ?? []
-        })) ?? []
+        name: train.name
     };
+}
+function resolveSeatCode(seat) {
+    return seat.seatNumber;
 }

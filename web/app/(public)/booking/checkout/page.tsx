@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { createBooking, getTripDetail } from '@/lib/api';
+import { createBooking, getTripDetail, mapSeatsForCarriage } from '@/lib/api';
 import { Trip } from '@/lib/types';
 import { VN } from '@/lib/translations';
 import { formatCurrencyVND, formatDateVn } from '@/lib/utils';
@@ -73,7 +73,11 @@ function CheckoutPageContent() {
 
         const detail = await getTripDetail(tripId);
         const availableSeatIds = new Set(
-          detail.carriages.flatMap((carriage) => carriage.seats.filter((seat) => seat.available).map((seat) => seat.id))
+          detail.carriages.flatMap((carriage) =>
+            mapSeatsForCarriage(carriage, detail.trip.basePrice)
+              .filter((seat) => seat.status === 'available')
+              .map((seat) => seat.id)
+          )
         );
         const unavailableSeats = seatIds.filter((seatId) => !availableSeatIds.has(seatId));
 

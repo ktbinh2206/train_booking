@@ -71,7 +71,6 @@ model Train {
   code       String     @unique
   name       String
 
-  carriages  Carriage[]
   trips      Trip[]
 
   createdAt  DateTime   @default(now())
@@ -91,44 +90,51 @@ model Station {
   destinationTrips  Trip[]   @relation("TripDestinationStation")
 }
 
-model Carriage {
+model CarriageTemplate {
   id         String    @id @default(cuid())
-
-  trainId    String
-  train      Train     @relation(fields: [trainId], references: [id], onDelete: Cascade)
-
   code       String
-  orderIndex Int
   type       CarriageType
-
-  layoutJson Json?
-  basePrice  Decimal   @default(0) @db.Decimal(12,2)
-
-  seats      Seat[]
+  layout     Json
+  tripCarriages TripCarriage[]
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
-
-  @@unique([trainId, code])
-  @@unique([trainId, orderIndex])
 }
 
-model Seat {
+model TripCarriage {
   id          String      @id @default(cuid())
 
-  carriageId  String
-  carriage    Carriage    @relation(fields: [carriageId], references: [id], onDelete: Cascade)
+  tripId      String
+  trip        Trip        @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  templateId  String
+  template    CarriageTemplate @relation(fields: [templateId], references: [id])
 
   code        String
   orderIndex  Int
-  status      SeatStatus  @default(ACTIVE)
+  basePrice   Decimal     @db.Decimal(12,2)
+  layout      Json
 
-  // 🔥 Giá riêng từng ghế (optional)
+  seats       TripSeat[]
+  createdAt   DateTime    @default(now())
+
+  @@unique([tripId, code])
+  @@unique([tripId, orderIndex])
+}
+
+model TripSeat {
+  id          String      @id @default(cuid())
+
+  carriageId  String
+  carriage    TripCarriage @relation(fields: [carriageId], references: [id], onDelete: Cascade)
+
+  seatNumber  String
   price       Decimal?    @db.Decimal(12,2)
+  status      SeatStatus  @default(ACTIVE)
 
   bookingSeats BookingSeat[]
 
-  @@unique([carriageId, code])
+  @@unique([carriageId, seatNumber])
 }
 
 model Trip {
@@ -159,6 +165,7 @@ model Trip {
   note          String?
 
   bookings      Booking[]
+  tripCarriages TripCarriage[]
 
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -212,7 +219,7 @@ model BookingSeat {
   booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   seatId        String
-  seat          Seat     @relation(fields: [seatId], references: [id], onDelete: Restrict)
+  seat          TripSeat @relation(fields: [seatId], references: [id], onDelete: Restrict)
 
   // 🔥 snapshot giá tại thời điểm đặt
   priceSnapshot Decimal  @db.Decimal(12,2)

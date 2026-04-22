@@ -29,56 +29,110 @@ function normalizePage(page?: number, pageSize?: number) {
 }
 
 async function buildTripListResponse(
-  trips: Array<{
-    id: string;
-    trainId: string;
-    train: { code: string; name: string };
-    origin: string;
-    destination: string;
-    originStationId: string | null;
-    destinationStationId: string | null;
-    departureTime: Date;
-    arrivalTime: Date;
-    price: { toNumber: () => number };
-    status: TripStatus;
-    delayMinutes: number;
-    delayedDepartureTime: Date | null;
-    note: string | null;
-  }>,
+  trips: any[],
   page: number,
   pageSize: number,
   total: number
 ) {
-  const data = await Promise.all(trips.map(async (trip) => {
-    const reservedSeatIds = await getReservedSeatIds(trip.id);
-    const seatCapacity = await prisma.seat.count({
-      where: { carriage: { trainId: trip.trainId } }
+  const tripIds = trips.map(t => t.id);
+
+  // 🔥 1. Đếm total seats theo trip
+  const seatCounts = await prisma.tripSeat.groupBy({
+    by: ['carriageId'],
+    _count: true
+  });
+
+  // map carriage -> count
+  const carriageSeatMap = new Map<string, number>();
+  seatCounts.forEach(item => {
+    carriageSeatMap.set(item.carriageId, item._count);
+  });
+
+  // 🔥 2. Lấy tất cả carriage của trip
+  const tripCarriages = await prisma.tripCarriage.findMany({
+    where: { tripId: { in: tripIds } },
+    select: { id: true, tripId: true }
+  });
+
+  // map trip -> capacity
+  const tripCapacityMap = new Map<string, number>();
+
+  tripCarriages.forEach(c => {
+    const count = carriageSeatMap.get(c.id) || 0;
+    tripCapacityMap.set(
+      c.tripId,
+      (tripCapacityMap.get(c.tripId) || 0) + count
+    );
+  });
+
+  // 🔥 3. reserved seats
+  const reservedCounts = await prisma.bookingSeat.groupBy({
+    by: ['seatId'],
+    where: {
+      booking: {
+        tripId: { in: tripIds },
+        status: { in: ['HOLDING', 'PAID'] }
+      }
+    },
+    _count: true
+  });
+
+  // map trip -> reserved
+  const tripReservedMap = new Map<string, number>();
+
+  if (reservedCounts.length > 0) {
+    const seatIds = reservedCounts.map(r => r.seatId);
+
+    const seats = await prisma.tripSeat.findMany({
+      where: { id: { in: seatIds } },
+      select: {
+        id: true,
+        carriage: { select: { tripId: true } }
+      }
     });
+
+    seats.forEach(seat => {
+      tripReservedMap.set(
+        seat.carriage.tripId,
+        (tripReservedMap.get(seat.carriage.tripId) || 0) + 1
+      );
+    });
+  }
+
+  // 🔥 4. build response
+  const data = trips.map((trip) => {
+    const capacity = tripCapacityMap.get(trip.id) || 0;
+    const reserved = tripReservedMap.get(trip.id) || 0;
 
     return {
       id: trip.id,
       trainId: trip.trainId,
       trainCode: trip.train.code,
       trainName: trip.train.name,
+
       origin: trip.origin,
       destination: trip.destination,
       originStationId: trip.originStationId,
       destinationStationId: trip.destinationStationId,
+
       departureTime: trip.departureTime.toISOString(),
       arrivalTime: trip.arrivalTime.toISOString(),
+
       price: trip.price.toNumber(),
+
       status: trip.status,
       delayMinutes: trip.delayMinutes,
       delayedDepartureTime: trip.delayedDepartureTime?.toISOString() ?? null,
       note: trip.note,
-      capacity: seatCapacity,
-      reservedSeatCount: reservedSeatIds.size,
-      availableSeatCount: Math.max(seatCapacity - reservedSeatIds.size, 0)
+
+      capacity,
+      reservedSeatCount: reserved,
+      availableSeatCount: Math.max(capacity - reserved, 0)
     };
-  }));
+  });
 
   return {
-    data: data,
+    data,
     page,
     pageSize,
     total,
@@ -134,9 +188,9 @@ export async function searchTrips(input: TripSearchInput) {
 
   return buildTripListResponse(trips, page, pageSize, total);
 }
-
-export async function getTodayTrips(input: { page?: number | undefined; pageSize?: number | undefined }) {
+export async function getTodayTrips(input: { page?: number; pageSize?: number }) {
   const { page, pageSize, skip } = normalizePage(input.page, input.pageSize);
+
   const todayStart = getTodayInVN();
   const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60_000 - 1);
 
@@ -163,31 +217,95 @@ export async function getTodayTrips(input: { page?: number | undefined; pageSize
     })
   ]);
 
-  const items = await Promise.all(trips.map(async (trip) => {
-    const reservedSeatIds = await getReservedSeatIds(trip.id);
-    const seatCapacity = await prisma.seat.count({
-      where: { carriage: { trainId: trip.trainId } }
-    });
+  const tripIds = trips.map(t => t.id);
+
+  // 🔥 1. lấy toàn bộ carriage của trip
+  const tripCarriages = await prisma.tripCarriage.findMany({
+    where: { tripId: { in: tripIds } },
+    select: { id: true, tripId: true }
+  });
+
+  const carriageIds = tripCarriages.map(c => c.id);
+
+  // 🔥 2. count seats theo carriage
+  const seatCounts = await prisma.tripSeat.groupBy({
+    by: ['carriageId'],
+    where: { carriageId: { in: carriageIds } },
+    _count: true
+  });
+
+  const carriageSeatMap = new Map<string, number>();
+  seatCounts.forEach(s => {
+    carriageSeatMap.set(s.carriageId, s._count);
+  });
+
+  // 🔥 3. map capacity theo trip
+  const tripCapacityMap = new Map<string, number>();
+
+  tripCarriages.forEach(c => {
+    const count = carriageSeatMap.get(c.id) || 0;
+    tripCapacityMap.set(
+      c.tripId,
+      (tripCapacityMap.get(c.tripId) || 0) + count
+    );
+  });
+
+  // 🔥 4. reserved seats (batch)
+  const reservedSeats = await prisma.bookingSeat.findMany({
+    where: {
+      booking: {
+        tripId: { in: tripIds },
+        status: { in: ['HOLDING', 'PAID'] }
+      }
+    },
+    select: {
+      seat: {
+        select: {
+          carriage: { select: { tripId: true } }
+        }
+      }
+    }
+  });
+
+  const tripReservedMap = new Map<string, number>();
+
+  reservedSeats.forEach(r => {
+    const tripId = r.seat.carriage.tripId;
+    tripReservedMap.set(
+      tripId,
+      (tripReservedMap.get(tripId) || 0) + 1
+    );
+  });
+
+  // 🔥 5. build response
+  const items = trips.map((trip) => {
+    const capacity = tripCapacityMap.get(trip.id) || 0;
+    const reserved = tripReservedMap.get(trip.id) || 0;
 
     return {
       id: trip.id,
       trainId: trip.trainId,
       trainCode: trip.train.code,
       trainName: trip.train.name,
+
       origin: trip.origin,
       destination: trip.destination,
       originStationId: trip.originStationId,
       destinationStationId: trip.destinationStationId,
+
       departureTime: trip.departureTime.toISOString(),
       departureTimeVN: toVNTimeString(trip.departureTime),
+
       arrivalTime: trip.arrivalTime.toISOString(),
       arrivalTimeVN: toVNTimeString(trip.arrivalTime),
+
       price: trip.price.toNumber(),
-      capacity: seatCapacity,
-      reservedSeatCount: reservedSeatIds.size,
-      availableSeatCount: Math.max(seatCapacity - reservedSeatIds.size, 0)
+
+      capacity,
+      reservedSeatCount: reserved,
+      availableSeatCount: Math.max(capacity - reserved, 0)
     };
-  }));
+  });
 
   return {
     data: items,
@@ -198,16 +316,19 @@ export async function getTodayTrips(input: { page?: number | undefined; pageSize
     totalPages: Math.max(1, Math.ceil(total / pageSize))
   };
 }
-
 export async function searchTripsByStationAndDate(input: {
-  departureStationId?: string | undefined;
-  arrivalStationId?: string | undefined;
+  departureStationId?: string;
+  arrivalStationId?: string;
   fromDate: string;
   toDate: string;
-  page?: number | undefined;
-  pageSize?: number | undefined;
+  page?: number;
+  pageSize?: number;
 }) {
-  if (input.departureStationId && input.arrivalStationId && input.departureStationId === input.arrivalStationId) {
+  if (
+    input.departureStationId &&
+    input.arrivalStationId &&
+    input.departureStationId === input.arrivalStationId
+  ) {
     throw new Error('Ga đi và ga đến phải khác nhau');
   }
 
@@ -216,6 +337,7 @@ export async function searchTripsByStationAndDate(input: {
   }
 
   const { page, pageSize, skip } = normalizePage(input.page, input.pageSize);
+
   const where: any = {
     departureTime: {
       gte: getStartOfDayUTC7(input.fromDate),
@@ -247,11 +369,64 @@ export async function searchTripsByStationAndDate(input: {
     })
   ]);
 
-  const items = await Promise.all(trips.map(async (trip) => {
-    const reservedSeatIds = await getReservedSeatIds(trip.id);
-    const seatCapacity = await prisma.seat.count({
-      where: { carriage: { trainId: trip.trainId } }
-    });
+  // =========================
+  // 🚀 BATCH PERFORMANCE
+  // =========================
+
+  const tripIds = trips.map(t => t.id);
+
+  const allSeats = await prisma.tripSeat.findMany({
+    where: {
+      carriage: {
+        tripId: { in: tripIds }
+      }
+    },
+    select: {
+      carriage: {
+        select: { tripId: true }
+      }
+    }
+  });
+
+  const capacityMap = new Map<string, number>();
+
+  for (const s of allSeats) {
+    const tripId = s.carriage.tripId;
+    capacityMap.set(tripId, (capacityMap.get(tripId) || 0) + 1);
+  }
+
+  const reserved = await prisma.bookingSeat.findMany({
+    where: {
+      booking: {
+        tripId: { in: tripIds },
+        status: { in: ['HOLDING', 'PAID'] }
+      }
+    },
+    select: {
+      seat: {
+        select: {
+          carriage: {
+            select: { tripId: true }
+          }
+        }
+      }
+    }
+  });
+
+  const reservedMap = new Map<string, number>();
+
+  for (const r of reserved) {
+    const tripId = r.seat.carriage.tripId;
+    reservedMap.set(tripId, (reservedMap.get(tripId) || 0) + 1);
+  }
+
+  // =========================
+  // RESPONSE
+  // =========================
+
+  const items = trips.map((trip) => {
+    const capacity = capacityMap.get(trip.id) || 0;
+    const reservedCount = reservedMap.get(trip.id) || 0;
 
     return {
       id: trip.id,
@@ -267,11 +442,11 @@ export async function searchTripsByStationAndDate(input: {
       arrivalTime: trip.arrivalTime.toISOString(),
       arrivalTimeVN: toVNTimeString(trip.arrivalTime),
       price: trip.price.toNumber(),
-      capacity: seatCapacity,
-      reservedSeatCount: reservedSeatIds.size,
-      availableSeatCount: Math.max(seatCapacity - reservedSeatIds.size, 0)
+      capacity,
+      reservedSeatCount: reservedCount,
+      availableSeatCount: Math.max(capacity - reservedCount, 0)
     };
-  }));
+  });
 
   return {
     data: items,
@@ -282,54 +457,61 @@ export async function searchTripsByStationAndDate(input: {
     totalPages: Math.max(1, Math.ceil(total / pageSize))
   };
 }
-
 export async function getTripDetail(tripId: string, now = new Date()) {
   const trip = await prisma.trip.findUnique({
     where: { id: tripId },
     include: {
-      train: {
+      train: true,
+      tripCarriages: {
+        orderBy: { orderIndex: 'asc' },
         include: {
-          carriages: {
-            orderBy: { orderIndex: 'asc' },
-            include: {
-              seats: {
-                orderBy: { orderIndex: 'asc' }
-              }
-            }
+          seats: {
+            orderBy: { seatNumber: 'asc' }
           }
-        }
-      },
-      bookings: {
-        where: {
-          OR: [
-            { status: 'PAID' },
-            { status: 'HOLDING', holdExpiresAt: { gt: now } }
-          ]
-        },
-        include: {
-          bookingSeats: true,
-          user: true,
-          payment: true,
-          ticket: true
         }
       }
     }
   });
 
-  if (!trip) {
-    return null;
-  }
+  if (!trip) return null;
 
-  const reservedSeatIds = new Set<string>();
-  for (const booking of trip.bookings) {
-    if (!isBookingUsable(booking.status, booking.holdExpiresAt, now)) {
-      continue;
-    }
+  // =========================
+  // 🚀 RESERVED SEATS (BATCH)
+  // =========================
 
-    for (const bookingSeat of booking.bookingSeats) {
-      reservedSeatIds.add(bookingSeat.seatId);
+  const reserved = await prisma.bookingSeat.findMany({
+    where: {
+      booking: {
+        tripId: tripId,
+        OR: [
+          { status: 'PAID' },
+          { status: 'HOLDING', holdExpiresAt: { gt: now } }
+        ]
+      }
+    },
+    select: {
+      seatId: true,
+      booking: {
+        select: {
+          status: true
+        }
+      }
     }
-  }
+  });
+
+  const reservedSeatIds = new Set(reserved.map(r => r.seatId));
+  const reservationStatusBySeatId = new Map<string, 'PAID' | 'HOLDING'>();
+  reserved.forEach((item) => {
+    const current = reservationStatusBySeatId.get(item.seatId);
+    // PAID has higher priority than HOLDING for UI status rendering.
+    if (item.booking.status === 'PAID' || !current) {
+      reservationStatusBySeatId.set(item.seatId, item.booking.status as 'PAID' | 'HOLDING');
+    }
+  });
+
+  // =========================
+  // RESPONSE
+  // =========================
 
   return {
     trip: {
@@ -347,22 +529,69 @@ export async function getTripDetail(tripId: string, now = new Date()) {
       delayedDepartureTime: trip.delayedDepartureTime?.toISOString() ?? null,
       note: trip.note
     },
-    carriages: trip.train.carriages.map((carriage) => ({
-      id: carriage.id,
-      code: carriage.code,
-      orderIndex: carriage.orderIndex,
-      basePrice: carriage.basePrice.toNumber(),
-      layoutJson: carriage.layoutJson,
-      seats: carriage.seats.map((seat) => ({
-        id: seat.id,
-        code: seat.code,
-        orderIndex: seat.orderIndex,
-        status: seat.status,
-        price: seat.price?.toNumber() ?? null,
-        available: seat.status === 'ACTIVE' && !reservedSeatIds.has(seat.id)
-      }))
-    })),
-    activeBookings: trip.bookings.length
+
+    carriages: trip.tripCarriages.map((carriage) => {
+      const seatByCode = new Map(carriage.seats.map((seat) => [seat.seatNumber, seat]));
+      const rawLayout = carriage.layout as {
+        rows?: number;
+        cols?: number;
+        cells?: Array<Array<{ seatNumber?: string } | null>>;
+      } | null;
+      const rows = Math.max(1, Number(rawLayout?.rows ?? 1));
+      const cols = Math.max(1, Number(rawLayout?.cols ?? 1));
+
+      const emptyCells: Array<Array<{
+        id: string;
+        seatNumber: string;
+        status: 'ACTIVE' | 'INACTIVE' | 'HOLDING' | 'SOLD';
+        price: number | null;
+        finalPrice: number;
+        available: boolean;
+      } | null>> = Array.from({ length: rows }, () => Array.from({ length: cols }, () => null));
+
+      const rawCells = Array.isArray(rawLayout?.cells) ? rawLayout.cells : [];
+      rawCells.forEach((row, rowIndex) => {
+        if (!Array.isArray(row) || rowIndex >= rows) return;
+        row.forEach((cell, colIndex) => {
+          if (!cell || colIndex >= cols) return;
+          const seatNumber = typeof cell.seatNumber === 'string' ? cell.seatNumber : null;
+          if (!seatNumber) return;
+          const seat = seatByCode.get(seatNumber);
+          if (!seat) return;
+          const reservationStatus = reservationStatusBySeatId.get(seat.id) ?? null;
+          const available = seat.status === 'ACTIVE' && !reservedSeatIds.has(seat.id);
+          const runtimeStatus = seat.status === 'INACTIVE'
+            ? 'INACTIVE'
+            : reservationStatus === 'HOLDING'
+              ? 'HOLDING'
+              : reservationStatus === 'PAID'
+                ? 'SOLD'
+                : 'ACTIVE';
+
+          emptyCells[rowIndex][colIndex] = {
+            id: seat.id,
+            seatNumber: seat.seatNumber,
+            status: runtimeStatus,
+            price: seat.price ? seat.price.toNumber() : null,
+            finalPrice: seat.price ? seat.price.toNumber() : carriage.basePrice.toNumber(),
+            available
+          };
+        });
+      });
+
+      return {
+        id: carriage.id,
+        code: carriage.code,
+        basePrice: carriage.basePrice.toNumber(),
+        layout: {
+          rows,
+          cols,
+          cells: emptyCells
+        }
+      };
+    }),
+
+    activeBookings: reservedSeatIds.size // hoặc count booking nếu cần
   };
 }
 

@@ -17,31 +17,50 @@ const cleanupTimer = setInterval(async () => {
     prisma.booking.findMany({
       where: {
         status: 'HOLDING',
-        expiredAt: { lt: now }
+        holdExpiresAt: { lt: now }
       },
       select: { id: true }
     }),
+
     prisma.booking.findMany({
       where: {
         status: 'HOLDING',
-        expiredAt: {
+        holdExpiresAt: {
           gt: now,
           lte: new Date(now.getTime() + 60_000)
         }
       },
-      include: {
-        notifications: { where: { type: 'HOLD_EXPIRE' } }
+      select: {
+        id: true,
+        code: true,
+        userId: true,
+        contactEmail: true,
+        notifications: {
+          where: { type: 'HOLD_EXPIRE' },
+          select: { id: true }
+        }
       }
     }),
+
     prisma.booking.findMany({
       where: {
         status: 'PAID',
         OR: [
-          { trip: { delayedDepartureTime: { gt: now, lte: new Date(now.getTime() + 60 * 60_000) } } },
+          {
+            trip: {
+              delayedDepartureTime: {
+                gt: now,
+                lte: new Date(now.getTime() + 60 * 60_000)
+              }
+            }
+          },
           {
             trip: {
               delayedDepartureTime: null,
-              departureTime: { gt: now, lte: new Date(now.getTime() + 60 * 60_000) }
+              departureTime: {
+                gt: now,
+                lte: new Date(now.getTime() + 60 * 60_000)
+              }
             }
           }
         ]
@@ -53,14 +72,14 @@ const cleanupTimer = setInterval(async () => {
     })
   ]);
 
-  for (const booking of expiredBookings) {
-    await expireBooking(booking.id, 'Booking hết hạn giữ chỗ và đã bị hủy tự động.');
-  }
+  await Promise.all(
+    expiredBookings.map((b) =>
+      expireBooking(b.id, 'Booking hết hạn giữ chỗ và đã bị hủy tự động.')
+    )
+  );
 
   for (const booking of soonExpireBookings) {
-    if (booking.notifications.length > 0) {
-      continue;
-    }
+    if (booking.notifications.length > 0) continue;
 
     await sendNotification({
       userId: booking.userId,
@@ -72,11 +91,11 @@ const cleanupTimer = setInterval(async () => {
   }
 
   for (const booking of reminderCandidates) {
-    if (booking.notifications.length > 0) {
-      continue;
-    }
+    if (booking.notifications.length > 0) continue;
 
-    const departure = booking.trip.delayedDepartureTime ?? booking.trip.departureTime;
+    const departure =
+      booking.trip.delayedDepartureTime ?? booking.trip.departureTime;
+
     await sendNotification({
       userId: booking.userId,
       bookingId: booking.id,

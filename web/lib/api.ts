@@ -49,17 +49,19 @@ type ApiTripDetail = {
   carriages: Array<{
     id: string;
     code: string;
-    orderIndex: number;
     basePrice: number;
-    layoutJson?: TrainLayoutJson | null;
-    seats: Array<{
-      id: string;
-      code: string;
-      orderIndex: number;
-      status: 'ACTIVE' | 'INACTIVE';
-      available: boolean;
-      price?: number | null;
-    }>;
+    layout: {
+      rows: number;
+      cols: number;
+      cells: Array<Array<{
+        id: string;
+        seatNumber: string;
+        status: 'ACTIVE' | 'INACTIVE' | 'HOLDING' | 'SOLD';
+        price: number | null;
+        finalPrice: number;
+        available: boolean;
+      } | null>>;
+    };
   }>;
 };
 
@@ -182,19 +184,22 @@ function mapTripStatus(status: 'ON_TIME' | 'DELAYED' | 'CANCELLED'): Trip['statu
   return 'scheduled';
 }
 
-function parseSeatPosition(code: string, orderIndex: number) {
+function parseSeatPosition(code: string, fallbackIndex = 0) {
   const match = code.match(/([A-Za-z]+)(\d+)$/);
   if (match) {
     const letters = match[1].toUpperCase();
-    const row = Number.parseInt(match[2], 10);
-    const column = letters.charCodeAt(letters.length - 1) - 64;
+    let row = 0;
+    for (const char of letters) {
+      row = row * 26 + (char.charCodeAt(0) - 64);
+    }
+    const column = Number.parseInt(match[2], 10);
     if (Number.isFinite(row) && Number.isFinite(column) && row > 0 && column > 0) {
       return { row, column };
     }
   }
 
-  const row = Math.floor((orderIndex - 1) / 6) + 1;
-  const column = ((orderIndex - 1) % 6) + 1;
+  const row = Math.floor(fallbackIndex / 6) + 1;
+  const column = (fallbackIndex % 6) + 1;
   return { row, column };
 }
 
@@ -319,6 +324,9 @@ export async function listStations(query?: string) {
 
 export async function getTripDetail(tripId: string) {
   const data = await apiRequest<ApiTripDetail>(`/api/trips/${tripId}`);
+  const allSeats = data.carriages.flatMap((carriage) =>
+    carriage.layout.cells.flatMap((row) => row.filter((cell): cell is NonNullable<typeof cell> => cell !== null))
+  );
   return {
     trip: toUiTrip({
       id: data.trip.id,
@@ -332,8 +340,8 @@ export async function getTripDetail(tripId: string) {
       status: data.trip.status,
       delayMinutes: data.trip.delayMinutes,
       delayedDepartureTime: data.trip.delayedDepartureTime,
-      availableSeatCount: data.carriages.flatMap((carriage) => carriage.seats).filter((seat) => seat.available).length,
-      capacity: data.carriages.flatMap((carriage) => carriage.seats).length
+      availableSeatCount: allSeats.filter((seat) => seat.available).length,
+      capacity: allSeats.length
     }),
     carriages: data.carriages
   };
@@ -361,7 +369,6 @@ export async function getTripSeatsDetail(tripId: string) {
       seats: Array<{
         id: string;
         code: string;
-        orderIndex: number;
         status: 'ACTIVE' | 'INACTIVE';
         available: boolean;
         reserved?: boolean;
@@ -373,44 +380,57 @@ export async function getTripSeatsDetail(tripId: string) {
 export function mapCarriagesToUi(data: ApiTripDetail['carriages'], trip: Trip): Carriage[] {
   return data.map((carriage) => ({
     id: carriage.id,
-    number: carriage.orderIndex,
-    type: carriage.orderIndex <= 2 ? 'economy' : carriage.orderIndex === 3 ? 'business' : 'first_class',
-    totalSeats: carriage.seats.length,
-    priceMultiplier: carriage.orderIndex <= 2 ? 1 : carriage.orderIndex === 3 ? 1.5 : 2
+    number: Number(carriage.code.replace(/\D/g, '')) || 1,
+    type: 'economy',
+    totalSeats: carriage.layout.cells.flat().filter(Boolean).length,
+    priceMultiplier: 1
   }));
 }
 
 export function mapSeatsForCarriage(data: ApiTripDetail['carriages'][number], basePrice: number) {
-  const layout = normalizeTrainLayoutJson(data.layoutJson ?? null, Math.max(1, Math.ceil(data.seats.length / 4)), 4);
   const fallbackPrice = Math.round(basePrice + (data.basePrice ?? 0));
-  const seatByCode = new Map(data.seats.map((seat) => [seat.code, seat]));
-
-  if (layout.seats.length === 0) {
-    return data.seats.map((seat) => {
-      const position = parseSeatPosition(seat.code, seat.orderIndex);
-      return {
-        id: seat.id,
+  const seats = data.layout.cells.flatMap((row, rowIndex) =>
+    row.flatMap((cell, colIndex) => {
+      if (!cell) return [];
+      const status = cell.status === 'HOLDING'
+        ? ('holding' as const)
+        : cell.status === 'SOLD'
+          ? ('sold' as const)
+          : cell.status === 'INACTIVE'
+            ? ('blocked' as const)
+            : cell.available
+              ? ('available' as const)
+              : ('sold' as const);
+      return [{
+        id: cell.id,
         carriageId: data.id,
-        seatNumber: seat.code,
-        row: position.row,
-        column: position.column,
-        status: seat.available ? ('available' as const) : ('sold' as const),
-        price: seat.price ?? fallbackPrice
-      };
-    });
+        seatNumber: cell.seatNumber,
+        row: rowIndex + 1,
+        column: colIndex + 1,
+        status,
+        price: cell.price ?? cell.finalPrice ?? fallbackPrice
+      }];
+    })
+  );
+  if (seats.length > 0) {
+    return seats;
   }
+  const layout = normalizeTrainLayoutJson(data.layout ?? null, Math.max(1, data.layout.rows), Math.max(1, data.layout.cols));
+  return layout.seats.map((seatCell) => ({
+    id: seatCell.seatId,
+    carriageId: data.id,
+    seatNumber: seatCell.seatNumber,
+    row: seatCell.row + 1,
+    column: seatCell.col + 1,
+    status: 'available' as const,
+    price: seatCell.price ?? fallbackPrice
+  }));
+}
 
-  return layout.seats.map((seatCell) => {
-    const seat = seatByCode.get(seatCell.seatNumber);
-    return {
-      id: seat?.id ?? seatCell.seatId,
-      carriageId: data.id,
-      seatNumber: seatCell.seatNumber,
-      row: seatCell.row + 1,
-      column: seatCell.col + 1,
-      status: seat?.available ? ('available' as const) : ('sold' as const),
-      price: seat?.price ?? seatCell.price ?? fallbackPrice
-    };
+export function holdSeats(seatIds: string[]) {
+  return apiRequest('/api/seats/hold', {
+    method: 'POST',
+    body: { seatIds }
   });
 }
 
@@ -586,29 +606,34 @@ export type AdminTrip = {
   destinationStation?: AdminStation | null;
 };
 
+export type AdminTripDetail = AdminTrip & {
+  tripCarriages?: Array<{
+    id: string;
+    templateId?: string;
+    code: string;
+    orderIndex: number;
+    basePrice: number;
+    layout?: TrainLayoutJson | null;
+    seats?: Array<{
+      id: string;
+      seatNumber: string;
+      price: number | null;
+      status: 'ACTIVE' | 'INACTIVE';
+    }>;
+  }>;
+};
+
 export type AdminCarriage = {
   id: string;
-  trainId: string;
   code: string;
-  orderIndex: number;
   type: 'SOFT_SEAT' | 'HARD_SEAT' | 'SLEEPER';
-  basePrice: number;
-  layoutJson?: TrainLayoutJson | null;
-  train: {
-    id: string;
-    code: string;
-    name: string;
-  };
-  _count?: {
-    seats: number;
-  };
+  layout?: TrainLayoutJson | null;
 };
 
 export type AdminSeat = {
   id: string;
   carriageId: string;
   code: string;
-  orderIndex: number;
   status: 'ACTIVE' | 'INACTIVE';
   price: number | null;
   carriage: {
@@ -677,7 +702,6 @@ export type AdminTrain = {
 export type AdminTrainDetailSeat = {
   id: string;
   code: string;
-  orderIndex: number;
   status: 'ACTIVE' | 'INACTIVE';
   price: number | null;
 };
@@ -685,6 +709,9 @@ export type AdminTrainDetailSeat = {
 export type AdminTrainDetailCarriage = Omit<AdminCarriage, 'train' | '_count'> & {
   seatCount: number;
   seats: AdminTrainDetailSeat[];
+  basePrice: number;
+  orderIndex: number;
+  templateId?: string;
 };
 
 export type AdminTrainDetail = AdminTrain & {
@@ -731,6 +758,10 @@ export async function getAdminTrips(params?: { page?: number; pageSize?: number 
   return normalizePagedData(payload);
 }
 
+export async function getAdminTripDetail(tripId: string) {
+  return apiRequest<AdminTripDetail>(`/api/admin/trips/${tripId}`);
+}
+
 export async function createAdminTrip(input: {
   trainId: string;
   originStationId: string;
@@ -738,6 +769,12 @@ export async function createAdminTrip(input: {
   departureTime: string;
   arrivalTime: string;
   price: number;
+  carriages?: Array<{
+    templateId: string;
+    code: string;
+    orderIndex: number;
+    basePrice: number;
+  }>;
 }) {
   return apiRequest<AdminTrip>('/api/admin/trips', {
     method: 'POST',
@@ -767,12 +804,9 @@ export async function getAdminCarriages(params?: { page?: number; pageSize?: num
 }
 
 export async function createAdminCarriage(input: {
-  trainId: string;
   code: string;
-  orderIndex: number;
   type: 'SOFT_SEAT' | 'HARD_SEAT' | 'SLEEPER';
-  basePrice?: number;
-  layoutJson?: TrainLayoutJson | null;
+  layout: TrainLayoutJson;
 }) {
   return apiRequest<AdminCarriage>('/api/admin/carriages', {
     method: 'POST',
@@ -782,10 +816,8 @@ export async function createAdminCarriage(input: {
 
 export async function updateAdminCarriage(carriageId: string, input: Partial<{
   code: string;
-  orderIndex: number;
   type: 'SOFT_SEAT' | 'HARD_SEAT' | 'SLEEPER';
-  basePrice: number;
-  layoutJson: TrainLayoutJson | null;
+  layout: TrainLayoutJson;
 }>) {
   return apiRequest<AdminCarriage>(`/api/admin/carriages/${carriageId}`, {
     method: 'PUT',
@@ -807,7 +839,6 @@ export async function getAdminSeats(params?: { page?: number; pageSize?: number;
 export async function createAdminSeat(input: {
   carriageId: string;
   code: string;
-  orderIndex: number;
   status?: 'ACTIVE' | 'INACTIVE';
   price?: number | null;
 }) {
@@ -819,7 +850,6 @@ export async function createAdminSeat(input: {
 
 export async function updateAdminSeat(seatId: string, input: Partial<{
   code: string;
-  orderIndex: number;
   status: 'ACTIVE' | 'INACTIVE';
   price: number | null;
 }>) {
@@ -876,17 +906,17 @@ export async function duplicateAdminCarriage(carriageId: string, code?: string) 
   });
 }
 
-export async function saveAdminCarriageLayout(carriageId: string, layoutJson: TrainLayoutJson) {
+export async function saveAdminCarriageLayout(carriageId: string, layout: TrainLayoutJson) {
   return apiRequest<AdminCarriage>(`/api/admin/carriages/${carriageId}/layout`, {
     method: 'PATCH',
-    body: { layoutJson }
+    body: { layout }
   });
 }
 
 export async function bulkAdminCarriageSeats(input: {
   carriageId: string;
-  seats: Array<{ code: string; orderIndex: number; price?: number | null }>;
-  layoutJson?: TrainLayoutJson;
+  seats: Array<{ code: string; price?: number | null }>;
+  layout?: TrainLayoutJson;
 }) {
   return apiRequest<AdminCarriage>(`/api/admin/seats/bulk`, {
     method: 'POST',
@@ -894,15 +924,14 @@ export async function bulkAdminCarriageSeats(input: {
   });
 }
 
-export async function syncAdminCarriageSeats(carriageId: string, layoutJson: TrainLayoutJson) {
+export async function syncAdminCarriageSeats(carriageId: string, layout: TrainLayoutJson) {
   return bulkAdminCarriageSeats({
     carriageId,
-    seats: layoutJson.seats.map((seat, index) => ({
+    seats: layout.seats.map((seat) => ({
       code: seat.seatNumber,
-      orderIndex: index + 1,
       price: seat.price ?? null,
     })),
-    layoutJson
+    layout
   });
 }
 

@@ -26,7 +26,7 @@ function normalizePage(page, pageSize) {
     };
 }
 async function buildTripListResponse(trips, page, pageSize, total) {
-    const items = await Promise.all(trips.map(async (trip) => {
+    const data = await Promise.all(trips.map(async (trip) => {
         const reservedSeatIds = await getReservedSeatIds(trip.id);
         const seatCapacity = await prisma_1.prisma.seat.count({
             where: { carriage: { trainId: trip.trainId } }
@@ -45,6 +45,7 @@ async function buildTripListResponse(trips, page, pageSize, total) {
             price: trip.price.toNumber(),
             status: trip.status,
             delayMinutes: trip.delayMinutes,
+            delayedDepartureTime: trip.delayedDepartureTime?.toISOString() ?? null,
             note: trip.note,
             capacity: seatCapacity,
             reservedSeatCount: reservedSeatIds.size,
@@ -52,7 +53,7 @@ async function buildTripListResponse(trips, page, pageSize, total) {
         };
     }));
     return {
-        items,
+        data: data,
         page,
         pageSize,
         total,
@@ -81,7 +82,9 @@ async function searchTrips(input) {
     if (!where.departureTime) {
         where.departureTime = { gte: (0, dates_1.startOfDay)(new Date()) };
     }
+    console.log("where:", where);
     const total = await prisma_1.prisma.trip.count({ where });
+    console.log("total:", total);
     const trips = await prisma_1.prisma.trip.findMany({
         where,
         include: { train: true },
@@ -89,6 +92,7 @@ async function searchTrips(input) {
         skip,
         take: pageSize
     });
+    console.log("trips:", trips);
     return buildTripListResponse(trips, page, pageSize, total);
 }
 async function getTodayTrips(input) {
@@ -224,10 +228,10 @@ async function getTripDetail(tripId, now = new Date()) {
             train: {
                 include: {
                     carriages: {
-                        orderBy: { orderIndex: 'asc' },
+                        orderBy: { code: 'asc' },
                         include: {
                             seats: {
-                                orderBy: { orderIndex: 'asc' }
+                                orderBy: { code: 'asc' }
                             }
                         }
                     }
@@ -274,17 +278,20 @@ async function getTripDetail(tripId, now = new Date()) {
             price: trip.price.toNumber(),
             status: trip.status,
             delayMinutes: trip.delayMinutes,
+            delayedDepartureTime: trip.delayedDepartureTime?.toISOString() ?? null,
             note: trip.note
         },
         carriages: trip.train.carriages.map((carriage) => ({
             id: carriage.id,
             code: carriage.code,
             orderIndex: carriage.orderIndex,
+            basePrice: carriage.basePrice.toNumber(),
+            layout: carriage.layout,
             seats: carriage.seats.map((seat) => ({
                 id: seat.id,
                 code: seat.code,
-                orderIndex: seat.orderIndex,
                 status: seat.status,
+                price: seat.price?.toNumber() ?? null,
                 available: seat.status === 'ACTIVE' && !reservedSeatIds.has(seat.id)
             }))
         })),
@@ -305,6 +312,7 @@ async function getTripSeatsDetail(tripId) {
             destination: detail.trip.destination,
             departureTime: detail.trip.departureTime,
             departureTimeVN: (0, timezone_1.toVNTimeString)(new Date(detail.trip.departureTime)),
+            delayedDepartureTime: detail.trip.delayedDepartureTime,
             arrivalTime: detail.trip.arrivalTime,
             arrivalTimeVN: (0, timezone_1.toVNTimeString)(new Date(detail.trip.arrivalTime)),
             price: detail.trip.price

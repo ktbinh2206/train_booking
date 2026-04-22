@@ -253,7 +253,7 @@ export async function deleteCarriage(carriageId: string) {
 }
 
 export async function bulkCreateSeats(input: { carriageId: string; prefix?: string | undefined; count: number }) {
-  const carriage = await prisma.carriage.findUnique({ where: { id: input.carriageId } });
+  const carriage = await prisma.carriage.findUnique({ where: { id: input.carriageId }, include: { train: true } });
   if (!carriage) {
     throw new AppError('Không tìm thấy toa.', 404);
   }
@@ -262,12 +262,14 @@ export async function bulkCreateSeats(input: { carriageId: string; prefix?: stri
   const seats = await prisma.seat.createMany({
     data: Array.from({ length: input.count }, (_, index) => {
       const seatNumber = existingSeats + index + 1;
+      const seatCode = `${input.prefix ?? carriage.code}-${seatNumber.toString().padStart(2, '0')}`;
       return {
+        id: `${carriage.train.code}_${carriage.code}_${seatCode.toUpperCase()}`,
         carriageId: input.carriageId,
-        code: `${input.prefix ?? carriage.code}-${seatNumber.toString().padStart(2, '0')}`,
-        orderIndex: seatNumber
+        code: seatCode
       };
-    })
+    }),
+    skipDuplicates: true
   });
 
   return { created: seats.count };

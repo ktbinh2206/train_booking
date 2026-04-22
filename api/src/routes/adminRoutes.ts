@@ -54,6 +54,17 @@ import {
   saveCarriageLayoutAdmin,
   syncCarriageSeatsAdmin
 } from '../services/trainBuilderService';
+import {
+  createCarriageTemplateRailwayAdmin,
+  createTrainRailwayAdmin,
+  createTripWithCarriagesRailwayAdmin,
+  deleteCarriageTemplateRailwayAdmin,
+  deleteTrainRailwayAdmin,
+  listCarriageTemplatesRailwayAdmin,
+  listTrainsRailwayAdmin,
+  updateCarriageTemplateRailwayAdmin,
+  updateTrainRailwayAdmin
+} from '../services/railwayAdminService';
 
 export const adminRoutes = Router();
 
@@ -118,7 +129,7 @@ const trainPayloadSchema = z.object({
 });
 
 adminRoutes.get('/trains', asyncHandler(async (request, response) => {
-  response.json(await listTrainsAdmin(getPaginationQuery(request)));
+  response.json(await listTrainsRailwayAdmin(getPaginationQuery(request)));
 }));
 
 adminRoutes.get('/trains/:id', asyncHandler(async (request, response) => {
@@ -127,30 +138,26 @@ adminRoutes.get('/trains/:id', asyncHandler(async (request, response) => {
 
 adminRoutes.post('/trains', asyncHandler(async (request, response) => {
   const payload = trainPayloadSchema.parse(request.body);
-  response.status(201).json(await createTrainAdmin(payload));
+  response.status(201).json(await createTrainRailwayAdmin(payload));
 }));
 
 adminRoutes.put('/trains/:id', asyncHandler(async (request, response) => {
   const payload = trainPayloadSchema.partial().parse(request.body);
-  response.json(await updateTrainAdmin(getIdParam(request, 'id'), payload));
+  response.json(await updateTrainRailwayAdmin(getIdParam(request, 'id'), payload));
 }));
 
 adminRoutes.delete('/trains/:id', asyncHandler(async (request, response) => {
-  response.json(await deleteTrainAdmin(getIdParam(request, 'id')));
+  response.json(await deleteTrainRailwayAdmin(getIdParam(request, 'id')));
 }));
 
 const carriagePayloadSchema = z.object({
-  trainId: z.string().min(1),
   code: z.string().min(1),
-  orderIndex: z.number().int().positive(),
   type: z.enum(['SOFT_SEAT', 'HARD_SEAT', 'SLEEPER']),
-  basePrice: z.number().nonnegative().optional(),
-  layoutJson: z.unknown().optional()
+  layout: z.unknown()
 });
 
 adminRoutes.get('/carriages', asyncHandler(async (request, response) => {
-  const trainId = typeof request.query.trainId === 'string' ? request.query.trainId : undefined;
-  response.json(await listCarriagesAdmin({ ...getPaginationQuery(request), trainId }));
+  response.json(await listCarriageTemplatesRailwayAdmin(getPaginationQuery(request)));
 }));
 
 adminRoutes.get('/carriages/:id', asyncHandler(async (request, response) => {
@@ -159,16 +166,16 @@ adminRoutes.get('/carriages/:id', asyncHandler(async (request, response) => {
 
 adminRoutes.post('/carriages', asyncHandler(async (request, response) => {
   const payload = carriagePayloadSchema.parse(request.body);
-  response.status(201).json(await createCarriageAdmin(payload));
+  response.status(201).json(await createCarriageTemplateRailwayAdmin(payload));
 }));
 
 adminRoutes.put('/carriages/:id', asyncHandler(async (request, response) => {
   const payload = carriagePayloadSchema.partial().parse(request.body);
-  response.json(await updateCarriageAdmin(getIdParam(request, 'id'), payload));
+  response.json(await updateCarriageTemplateRailwayAdmin(getIdParam(request, 'id'), payload));
 }));
 
 adminRoutes.delete('/carriages/:id', asyncHandler(async (request, response) => {
-  response.json(await deleteCarriageAdmin(getIdParam(request, 'id')));
+  response.json(await deleteCarriageTemplateRailwayAdmin(getIdParam(request, 'id')));
 }));
 
 adminRoutes.post('/carriages/:id/duplicate', asyncHandler(async (request, response) => {
@@ -180,14 +187,13 @@ adminRoutes.post('/carriages/:id/duplicate', asyncHandler(async (request, respon
 }));
 
 adminRoutes.patch('/carriages/:id/layout', asyncHandler(async (request, response) => {
-  const layoutJson = normalizeLayoutJson((request.body as { layoutJson?: unknown }).layoutJson ?? request.body);
-  response.json(await saveCarriageLayoutAdmin(getIdParam(request, 'id'), layoutJson));
+  const layout = normalizeLayoutJson((request.body as { layout?: unknown }).layout ?? request.body);
+  response.json(await saveCarriageLayoutAdmin(getIdParam(request, 'id'), layout));
 }));
 
 const seatPayloadSchema = z.object({
   carriageId: z.string().min(1),
   code: z.string().min(1),
-  orderIndex: z.number().int().positive(),
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
   price: z.number().nonnegative().nullable().optional()
 });
@@ -200,10 +206,10 @@ adminRoutes.get('/seats', asyncHandler(async (request, response) => {
 adminRoutes.post('/seats/sync', asyncHandler(async (request, response) => {
   const payload = z.object({
     carriageId: z.string().min(1),
-    layoutJson: z.unknown()
+    layout: z.unknown()
   }).parse(request.body);
 
-  response.json(await syncCarriageSeatsAdmin(payload.carriageId, payload.layoutJson));
+  response.json(await syncCarriageSeatsAdmin(payload.carriageId, payload.layout));
 }));
 
 adminRoutes.post('/seats/bulk', asyncHandler(async (request, response) => {
@@ -211,12 +217,12 @@ adminRoutes.post('/seats/bulk', asyncHandler(async (request, response) => {
     carriageId: z.string().min(1),
     seats: z.array(z.object({
       code: z.string().min(1),
-      orderIndex: z.number().int().positive()
+      price: z.number().nonnegative().nullable().optional()
     })).min(0),
-    layoutJson: z.unknown().optional()
+    layout: z.unknown().optional()
   }).parse(request.body);
 
-  response.json(await bulkSyncCarriageSeatsAdmin(payload.carriageId, payload.seats, payload.layoutJson));
+  response.json(await bulkSyncCarriageSeatsAdmin(payload.carriageId, payload.seats, payload.layout));
 }));
 
 adminRoutes.get('/seats/:id', asyncHandler(async (request, response) => {
@@ -246,7 +252,13 @@ const tripPayloadSchema = z.object({
   price: z.number().positive(),
   status: z.enum(['ON_TIME', 'DELAYED', 'CANCELLED']).optional(),
   delayMinutes: z.number().int().nonnegative().optional(),
-  note: z.string().nullable().optional()
+  note: z.string().nullable().optional(),
+  carriages: z.array(z.object({
+    templateId: z.string().min(1),
+    code: z.string().min(1),
+    orderIndex: z.number().int().nonnegative(),
+    basePrice: z.number().nonnegative()
+  })).optional()
 });
 
 adminRoutes.get('/trips', asyncHandler(async (request, response) => {
@@ -259,7 +271,19 @@ adminRoutes.get('/trips/:id', asyncHandler(async (request, response) => {
 
 adminRoutes.post('/trips', asyncHandler(async (request, response) => {
   const payload = tripPayloadSchema.parse(request.body);
-  response.status(201).json(await createTripAdmin(payload));
+  if (!payload.carriages) {
+    response.status(201).json(await createTripAdmin(payload));
+    return;
+  }
+  response.status(201).json(await createTripWithCarriagesRailwayAdmin({
+    trainId: payload.trainId,
+    originStationId: payload.originStationId,
+    destinationStationId: payload.destinationStationId,
+    departureTime: payload.departureTime,
+    arrivalTime: payload.arrivalTime,
+    price: payload.price,
+    carriages: payload.carriages
+  }));
 }));
 
 adminRoutes.put('/trips/:id', asyncHandler(async (request, response) => {

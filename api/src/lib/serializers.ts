@@ -1,4 +1,4 @@
-import type { Booking, Carriage, Notification, Payment, Seat, Ticket, Train, Trip, User } from '@prisma/client';
+import type { Booking, Notification, Payment, Ticket, Train, Trip, TripSeat, User } from '@prisma/client';
 
 export function moneyToNumber(value: { toNumber: () => number }) {
   return value.toNumber();
@@ -25,7 +25,7 @@ export function serializeTrip(trip: Trip & { train?: Train | null }) {
 export function serializeBooking(booking: Booking & {
   trip: Trip & { train: Train };
   user: User;
-  bookingSeats?: Array<{ seatId: string; seat?: Seat | null }>;
+  bookingSeats?: Array<{ seatId: string; seat?: TripSeat | null }>;
   payment: Payment | null;
   ticket: Ticket | null;
   refunds?: Array<{ id: string; amount: { toNumber: () => number }; status: string; reason: string | null; createdAt: Date }>;
@@ -41,7 +41,7 @@ export function serializeBooking(booking: Booking & {
     contactEmail: booking.contactEmail,
     seatCount: booking.seatCount,
     seatIds: booking.bookingSeats?.map((item) => item.seatId) ?? [],
-    seatCodes: booking.bookingSeats?.map((item) => item.seat?.code).filter((code): code is string => Boolean(code)) ?? [],
+    seatCodes: booking.bookingSeats?.map((item) => item.seat?.seatNumber).filter((code): code is string => Boolean(code)) ?? [],
     user: {
       id: booking.user.id,
       name: booking.user.name,
@@ -93,22 +93,14 @@ export function serializeNotification(notification: Notification) {
   };
 }
 
-export function serializeTrain(train: Train & { carriages?: Array<Carriage & { seats?: Seat[] }> }) {
+export function serializeTrain(train: Train) {
   return {
     id: train.id,
     code: train.code,
-    name: train.name,
-    carriages: train.carriages?.map((carriage) => ({
-      id: carriage.id,
-      code: carriage.code,
-      orderIndex: carriage.orderIndex,
-      seats: carriage.seats?.map((seat) => ({
-        id: seat.id,
-        code: seat.code,
-        orderIndex: seat.orderIndex,
-        status: seat.status,
-        carriageId: seat.carriageId
-      })) ?? []
-    })) ?? []
+    name: train.name
   };
+}
+
+export function resolveSeatCode(seat: Pick<TripSeat, 'seatNumber'>) {
+  return seat.seatNumber;
 }

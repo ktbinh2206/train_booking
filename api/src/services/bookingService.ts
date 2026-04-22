@@ -24,16 +24,13 @@ export async function createBooking(input: {
   }
 
   const now = new Date();
+
   const trip = await prisma.trip.findUnique({
     where: { id: input.tripId },
     include: {
-      train: {
+      tripCarriages: {
         include: {
-          carriages: {
-            include: {
-              seats: true
-            }
-          }
+          seats: true
         }
       }
     }
@@ -44,27 +41,60 @@ export async function createBooking(input: {
   }
 
   if (!isTripActive(trip.status)) {
-    throw new AppError('Chuyến đã bị hủy, không thể đặt vé.', 400);
+    throw new AppError('Chuyến đã bị hủy.', 400);
   }
 
-  const allSeats = trip.train.carriages.flatMap((carriage) => carriage.seats);
-  const seatById = new Map(allSeats.map((seat) => [seat.id, seat]));
-  const selectedSeatCount = input.seatIds.filter((seatId) => seatById.has(seatId)).length;
+  // 🔥 flatten seats
+  const allSeats = trip.tripCarriages.flatMap(c => c.seats);
 
-  if (selectedSeatCount !== input.seatIds.length) {
-    throw new AppError('Có ghế không thuộc chuyến tàu này.', 400);
-  }
+  const seatById = new Map(allSeats.map(s => [s.id, s]));
 
+  // 🔥 validate seat belongs to trip
+  const selectedSeats = input.seatIds.map(id => {
+    const seat = seatById.get(id);
+    if (!seat) {
+      throw new AppError('Có ghế không thuộc chuyến tàu.', 400);
+    }
+    return seat;
+  });
+
+  // 🔥 check reserved
   const reservedSeatIds = await getReservedSeatIds(trip.id, now);
-  for (const seatId of input.seatIds) {
-    if (reservedSeatIds.has(seatId)) {
-      throw new AppError('Ghế đã được giữ hoặc đã bán.', 409);
+
+  for (const seat of selectedSeats) {
+    if (reservedSeatIds.has(seat.id)) {
+      throw new AppError(`Ghế ${seat.seatNumber} đã được giữ hoặc đã bán.`, 409);
     }
   }
 
+  // 🔥 build carriage map để lấy basePrice
+  const carriageMap = new Map(
+    trip.tripCarriages.map(c => [c.id, c])
+  );
+
+  // 🔥 tính giá đúng từng ghế
+  const seatPrices = selectedSeats.map(seat => {
+    const carriage = carriageMap.get(seat.carriageId)!;
+
+    const finalPrice =
+      seat.price ??
+      carriage.basePrice ??
+      trip.price;
+
+    return new Decimal(finalPrice.toString());
+  });
+
+  const totalAmount = seatPrices.reduce(
+    (sum, p) => sum.plus(p),
+    new Decimal(0)
+  );
+
   const holdExpiresAt = addMinutes(now, 5);
-  const bookingCode = `BK-${now.getTime().toString(36).toUpperCase()}-${randomUUID().slice(0, 6).toUpperCase()}`;
-  const totalAmount = trip.price.mul(input.seatIds.length);
+
+  const bookingCode = `BK-${now
+    .getTime()
+    .toString(36)
+    .toUpperCase()}-${randomUUID().slice(0, 6).toUpperCase()}`;
 
   const booking = await prisma.booking.create({
     data: {
@@ -74,15 +104,17 @@ export async function createBooking(input: {
       status: BookingStatus.HOLDING,
       holdExpiresAt,
       expiredAt: holdExpiresAt,
-      totalAmount: new Decimal(totalAmount.toString()),
+      totalAmount,
       contactEmail: input.contactEmail,
-      seatCount: input.seatIds.length,
+      seatCount: selectedSeats.length,
+
       bookingSeats: {
-        create: input.seatIds.map((seatId) => ({
-          seatId,
-          priceSnapshot: trip.price
+        create: selectedSeats.map((seat, index) => ({
+          seatId: seat.id,
+          priceSnapshot: seatPrices[index]
         }))
       },
+
       payment: {
         create: {
           status: 'PENDING',
@@ -104,7 +136,7 @@ export async function createBooking(input: {
     userId: input.userId,
     bookingId: booking.id,
     type: 'HOLD_EXPIRE',
-    message: `Đặt chỗ thành công cho ${booking.code}. Hết hạn giữ chỗ lúc ${holdExpiresAt.toISOString()}.`,
+    message: `Đặt chỗ thành công ${booking.code}. Hết hạn lúc ${holdExpiresAt.toISOString()}.`,
     toEmail: input.contactEmail
   });
 

@@ -10,6 +10,10 @@ type PaginationInput = {
   pageSize?: number;
 };
 
+function seatIdFromTrainCode(trainCode: string, carriageCode: string, seatCode: string) {
+  return `${trainCode.trim().toUpperCase()}_${carriageCode.trim().toUpperCase()}_${seatCode.trim().toUpperCase()}`;
+}
+
 function normalizePagination(input: PaginationInput) {
   const page = Number.isFinite(input.page) && (input.page ?? 0) > 0 ? Number(input.page) : 1;
   const pageSize = Number.isFinite(input.pageSize) && (input.pageSize ?? 0) > 0
@@ -147,7 +151,7 @@ export async function getTrainByIdAdmin(trainId: string) {
         include: {
           seats: {
             orderBy: {
-              orderIndex: 'asc'
+              code: 'asc'
             }
           }
         },
@@ -228,7 +232,7 @@ export async function getCarriageByIdAdmin(carriageId: string) {
       train: true,
       seats: {
         orderBy: {
-          orderIndex: 'asc'
+          code: 'asc'
         }
       }
     }
@@ -247,7 +251,7 @@ export async function createCarriageAdmin(input: {
   orderIndex: number;
   type: 'SOFT_SEAT' | 'HARD_SEAT' | 'SLEEPER';
   basePrice?: number;
-  layoutJson?: unknown;
+  layout?: unknown;
 }) {
   const train = await prisma.train.findUnique({ where: { id: input.trainId } });
   if (!train) {
@@ -261,7 +265,7 @@ export async function createCarriageAdmin(input: {
       orderIndex: input.orderIndex,
       type: input.type,
       basePrice: input.basePrice === undefined ? undefined : new Decimal(input.basePrice),
-      layoutJson: input.layoutJson as never
+      layout: input.layout as never
     }
   });
 }
@@ -273,7 +277,7 @@ export async function updateCarriageAdmin(
     orderIndex?: number;
     type?: 'SOFT_SEAT' | 'HARD_SEAT' | 'SLEEPER';
     basePrice?: number;
-    layoutJson?: unknown;
+    layout?: unknown;
   }
 ) {
   const data: Record<string, unknown> = {};
@@ -281,7 +285,7 @@ export async function updateCarriageAdmin(
   if (input.orderIndex !== undefined) data.orderIndex = input.orderIndex;
   if (input.type !== undefined) data.type = input.type;
   if (input.basePrice !== undefined) data.basePrice = new Decimal(input.basePrice);
-  if (input.layoutJson !== undefined) data.layoutJson = input.layoutJson as never;
+  if (input.layout !== undefined) data.layout = input.layout as never;
 
   return prisma.carriage.update({
     where: { id: carriageId },
@@ -309,7 +313,7 @@ export async function listSeatsAdmin(input: PaginationInput & { carriageId?: str
           }
         }
       },
-      orderBy: [{ carriage: { orderIndex: 'asc' } }, { orderIndex: 'asc' }],
+      orderBy: [{ carriage: { orderIndex: 'asc' } }, { code: 'asc' }],
       skip,
       take: pageSize
     })
@@ -340,20 +344,21 @@ export async function getSeatByIdAdmin(seatId: string) {
 export async function createSeatAdmin(input: {
   carriageId: string;
   code: string;
-  orderIndex: number;
   status?: 'ACTIVE' | 'INACTIVE';
   price?: number | null;
 }) {
-  const carriage = await prisma.carriage.findUnique({ where: { id: input.carriageId } });
+  const carriage = await prisma.carriage.findUnique({ where: { id: input.carriageId }, include: { train: true } });
   if (!carriage) {
     throw new AppError('Toa không tồn tại.', 404);
   }
 
+  const code = input.code.trim().toUpperCase();
+
   return prisma.seat.create({
     data: {
+      id: seatIdFromTrainCode(carriage.train.code, carriage.code, code),
       carriageId: input.carriageId,
-      code: input.code.trim().toUpperCase(),
-      orderIndex: input.orderIndex,
+      code,
       status: input.status ?? 'ACTIVE',
       price: input.price === undefined || input.price === null ? null : new Decimal(input.price)
     }
@@ -364,14 +369,31 @@ export async function updateSeatAdmin(
   seatId: string,
   input: {
     code?: string;
-    orderIndex?: number;
     status?: 'ACTIVE' | 'INACTIVE';
     price?: number | null;
   }
 ) {
+  const current = await prisma.seat.findUnique({
+    where: { id: seatId },
+    include: {
+      carriage: {
+        include: {
+          train: true
+        }
+      }
+    }
+  });
+
+  if (!current) {
+    throw new AppError('Không tìm thấy ghế.', 404);
+  }
+
   const data: Record<string, unknown> = {};
-  if (input.code !== undefined) data.code = input.code.trim().toUpperCase();
-  if (input.orderIndex !== undefined) data.orderIndex = input.orderIndex;
+  if (input.code !== undefined) {
+    const code = input.code.trim().toUpperCase();
+    data.code = code;
+    data.id = seatIdFromTrainCode(current.carriage.train.code, current.carriage.code, code);
+  }
   if (input.status !== undefined) data.status = input.status;
   if (input.price !== undefined) data.price = input.price === null ? null : new Decimal(input.price);
 
@@ -417,6 +439,19 @@ export async function getTripByIdAdmin(tripId: string) {
       train: true,
       originStation: true,
       destinationStation: true,
+      tripCarriages: {
+        include: {
+          template: true,
+          seats: {
+            orderBy: {
+              seatNumber: 'asc'
+            }
+          }
+        },
+        orderBy: {
+          orderIndex: 'asc'
+        }
+      },
       bookings: {
         include: {
           user: true,
@@ -437,7 +472,29 @@ export async function getTripByIdAdmin(tripId: string) {
     throw new AppError('Không tìm thấy chuyến.', 404);
   }
 
-  return trip;
+  return {
+    ...trip,
+    price: Number(trip.price.toString()),
+    tripCarriages: trip.tripCarriages.map((carriage) => ({
+      id: carriage.id,
+      templateId: carriage.templateId,
+      code: carriage.code,
+      orderIndex: carriage.orderIndex,
+      basePrice: Number(carriage.basePrice.toString()),
+      layout: carriage.layout,
+      template: {
+        id: carriage.template.id,
+        code: carriage.template.code,
+        type: carriage.template.type
+      },
+      seats: carriage.seats.map((seat) => ({
+        id: seat.id,
+        seatNumber: seat.seatNumber,
+        price: seat.price === null ? null : Number(seat.price.toString()),
+        status: seat.status
+      }))
+    }))
+  };
 }
 
 export async function createTripAdmin(input: {

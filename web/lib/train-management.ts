@@ -24,6 +24,13 @@ export type TrainLayoutJson = {
     col: number;
     price?: number | null;
   }>;
+  cells?: Array<Array<{
+    seatId: string;
+    seatNumber: string;
+    row?: number;
+    col?: number;
+    price?: number | null;
+  } | null>>;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -61,13 +68,39 @@ export function cloneTrainLayout(layout: TrainSeatGrid): TrainSeatGrid {
 }
 
 export function layoutJsonToTrainGrid(layoutJson: TrainLayoutJson | null | undefined): TrainSeatGrid {
-  if (!layoutJson || !Array.isArray(layoutJson.seats)) {
+  if (!layoutJson) {
     return createEmptyTrainLayout();
   }
 
   const rows = Math.max(1, layoutJson.rows || 1);
   const cols = Math.max(1, layoutJson.cols || 1);
   const next = createEmptyTrainLayout(rows, cols);
+
+  if (Array.isArray(layoutJson.cells) && layoutJson.cells.length > 0) {
+    layoutJson.cells.forEach((row, rowIndex) => {
+      if (!Array.isArray(row) || rowIndex >= rows) {
+        return;
+      }
+
+      row.forEach((cell, colIndex) => {
+        if (!cell || colIndex >= cols) {
+          return;
+        }
+
+        next[rowIndex][colIndex] = {
+          seatId: cell.seatId,
+          seatNumber: cell.seatNumber,
+          price: cell.price ?? null,
+        };
+      });
+    });
+
+    return next;
+  }
+
+  if (!Array.isArray(layoutJson.seats)) {
+    return next;
+  }
 
   layoutJson.seats.forEach((seat) => {
     if (seat.row >= 0 && seat.row < rows && seat.col >= 0 && seat.col < cols) {
@@ -84,19 +117,29 @@ export function layoutJsonToTrainGrid(layoutJson: TrainLayoutJson | null | undef
 
 export function trainGridToLayoutJson(layout: TrainSeatGrid): TrainLayoutJson {
   const seats: TrainLayoutJson['seats'] = [];
+  const cells: NonNullable<TrainLayoutJson['cells']> = Array.from(
+    { length: layout.length },
+    (_, rowIndex) => Array.from({ length: layout[rowIndex]?.length ?? 0 }, () => null),
+  );
 
   layout.forEach((row, rowIndex) => {
     row.forEach((cell, colIndex) => {
       if (!cell) {
+        cells[rowIndex][colIndex] = null;
         return;
       }
 
-      seats.push({
+      const normalizedCell = {
         seatId: cell.seatId,
         seatNumber: cell.seatNumber,
         row: rowIndex,
         col: colIndex,
         price: cell.price ?? null,
+      };
+
+      cells[rowIndex][colIndex] = normalizedCell;
+      seats.push({
+        ...normalizedCell,
       });
     });
   });
@@ -105,6 +148,7 @@ export function trainGridToLayoutJson(layout: TrainSeatGrid): TrainLayoutJson {
     rows: layout.length,
     cols: layout[0]?.length ?? 0,
     seats,
+    cells,
   };
 }
 

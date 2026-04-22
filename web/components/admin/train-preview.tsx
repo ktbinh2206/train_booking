@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import { cn } from '@/lib/utils';
 import { formatCurrencyVND } from '@/lib/utils';
 import type { TrainPreviewCarriage } from '@/lib/train-management';
@@ -33,7 +34,7 @@ function SeatCell({
   );
 }
 
-export function TrainPreview({ carriages, className }: Props) {
+export const TrainPreview = memo(function TrainPreview({ carriages, className }: Props) {
   return (
     <div className={cn('overflow-x-auto', className)}>
       <div className="flex min-w-max gap-4 pb-2">
@@ -58,7 +59,7 @@ export function TrainPreview({ carriages, className }: Props) {
 
               <div className="max-h-[320px] overflow-auto p-4">
                 <div className="space-y-2">
-                  {carriage.layout.map((row, rowIndex) => (
+                  {carriage.layout.slice(0, 500).map((row, rowIndex) => (
                     <div key={`${carriage.code}-${rowIndex}`} className="flex items-center gap-2">
                       <div className="w-5 text-center text-[10px] font-medium text-slate-400">{rowIndex + 1}</div>
                       <div className="flex items-center gap-2">
@@ -81,4 +82,4 @@ export function TrainPreview({ carriages, className }: Props) {
       </div>
     </div>
   );
-}
+});
