@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Breadcrumb } from '@/components/shared/breadcrumb';
 import { SeatMap } from '@/components/public/seat-map';
@@ -8,9 +8,10 @@ import { Button } from '@/components/ui/button';
 import { AlertCircle, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { VN } from '@/lib/translations';
 import { Carriage, Seat, Trip } from '@/lib/types';
-import { createBooking, getTripDetail, mapCarriagesToUi, mapSeatsForCarriage } from '@/lib/api';
+import { getTripDetail, holdOrGetBooking, mapCarriagesToUi, mapSeatsForCarriage } from '@/lib/api';
 import { formatCurrencyVND } from '@/lib/utils';
 import { useAuth } from '@/components/auth/auth-provider';
+import { useSeatRealtime } from '@/hooks/use-seat-realtime';
 
 function BookingSeatsPageContent() {
   const searchParams = useSearchParams();
@@ -23,6 +24,7 @@ function BookingSeatsPageContent() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [carriages, setCarriages] = useState<Carriage[]>([]);
   const [carriageSeatsById, setCarriageSeatsById] = useState<Record<string, Seat[]>>({});
+  const [seatStatusMap, setSeatStatusMap] = useState<Record<string, Seat['status']>>({});
   const [selectedSeats, setSelectedSeats] = useState<string[]>(seedSeats);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -31,6 +33,13 @@ function BookingSeatsPageContent() {
   const [selectedCarriageId, setSelectedCarriageId] = useState<string | null>(null);
 
   const CARRIAGES_PER_GROUP = 5;
+
+  const updateSeat = useCallback((seatId: string, status: Seat['status']) => {
+    setSeatStatusMap((previous) => ({
+      ...previous,
+      [seatId]: status
+    }));
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -62,6 +71,12 @@ function BookingSeatsPageContent() {
           setSelectedCarriageId(uiCarriages[0].id);
         }
         setCarriageSeatsById(seatMapByCarriage);
+
+        const initialStatuses: Record<string, Seat['status']> = {};
+        Object.values(seatMapByCarriage).flat().forEach((seat) => {
+          initialStatuses[seat.id] = seat.status;
+        });
+        setSeatStatusMap(initialStatuses);
       } catch (unknownError) {
         if (!active) return;
         const message = unknownError instanceof Error ? unknownError.message : 'Không thể tải sơ đồ ghế.';
@@ -79,6 +94,42 @@ function BookingSeatsPageContent() {
       active = false;
     };
   }, [tripId]);
+
+  useSeatRealtime(tripId, ({ seatId, status }) => {
+    if (status === 'HOLDING') {
+      setSelectedSeats((previous) => previous.filter((id) => id !== seatId));
+      setSeatStatusMap((previous) => (previous[seatId] === 'blocked' ? previous : {
+        ...previous,
+        [seatId]: 'holding'
+      }));
+      return;
+    }
+
+    if (status === 'SOLD') {
+      setSelectedSeats((previous) => previous.filter((id) => id !== seatId));
+      setSeatStatusMap((previous) => (previous[seatId] === 'blocked' ? previous : {
+        ...previous,
+        [seatId]: 'sold'
+      }));
+      return;
+    }
+
+    setSeatStatusMap((previous) => (previous[seatId] === 'blocked' ? previous : {
+      ...previous,
+      [seatId]: 'available'
+    }));
+  });
+
+  const runtimeSeatsByCarriage = useMemo(() => {
+    const next: Record<string, Seat[]> = {};
+    for (const [carriageId, seats] of Object.entries(carriageSeatsById)) {
+      next[carriageId] = seats.map((seat) => ({
+        ...seat,
+        status: seatStatusMap[seat.id] ?? seat.status
+      }));
+    }
+    return next;
+  }, [carriageSeatsById, seatStatusMap]);
 
   // Calculate visible carriages for current group
   const visibleCarriages = useMemo(() => {
@@ -103,9 +154,11 @@ function BookingSeatsPageContent() {
         return prev;
       }
     });
+
+    updateSeat(seatId, 'available');
   };
 
-  const selectedSeatObjects = Object.values(carriageSeatsById).flat().filter((seat) => selectedSeats.includes(seat.id));
+  const selectedSeatObjects = Object.values(runtimeSeatsByCarriage).flat().filter((seat) => selectedSeats.includes(seat.id));
   const totalPrice = selectedSeatObjects.reduce((sum, seat) => sum + seat.price, 0);
 
   const handleContinue = async () => {
@@ -123,7 +176,7 @@ function BookingSeatsPageContent() {
       setSubmitting(true);
       setError(null);
 
-      const booking = await createBooking({
+      const booking = await holdOrGetBooking({
         userId: user.id,
         tripId,
         seatIds: selectedSeats,
@@ -242,7 +295,7 @@ function BookingSeatsPageContent() {
                   carriageSeats.some(seat => seat.id === id)
                 ).length;
                 const totalSeats = carriageSeats.length;
-                const availableSeats = carriageSeats.filter(s => s.status === 'available').length;
+                const availableSeats = carriageSeats.filter(s => (seatStatusMap[s.id] ?? s.status) === 'available').length;
 
                 return (
                   <div
@@ -273,7 +326,7 @@ function BookingSeatsPageContent() {
                 Sơ đồ chi tiết - Toa {selectedCarriage.number}
               </h3>
               <SeatMap
-                seats={carriageSeatsById[selectedCarriage.id] ?? []}
+                seats={runtimeSeatsByCarriage[selectedCarriage.id] ?? []}
                 selectedSeats={selectedSeats}
                 onSeatSelect={handleSeatSelect}
               />
@@ -285,7 +338,7 @@ function BookingSeatsPageContent() {
             <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0" />
             <div className="text-sm text-blue-900">
               <p className="font-semibold mb-1">Lưu ý đặt vé</p>
-              <p>Ghế sẽ được giữ trong 5 phút. Vui lòng hoàn tất đặt vé trong thời gian này.</p>
+              <p>Ghế sẽ được giữ trong 5 phút sau khi bạn xác nhận giữ chỗ.</p>
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 import { prisma } from './lib/prisma';
 import { createApp } from './app';
-import { expireBooking } from './services/bookingService';
+import { expireHoldingBookingsForCron } from './services/bookingService';
 import { sendNotification } from './services/notificationService';
 
 const port = Number(process.env.PORT ?? 4000);
@@ -10,7 +10,7 @@ const server = app.listen(port, () => {
   console.log(`API running at http://localhost:${port}`);
 });
 
-const INTERVAL = 15_000; // 15s
+const INTERVAL = 30_000; // 30s
 
 const cleanupTimer = setInterval(async () => {
   const now = new Date();
@@ -24,19 +24,7 @@ const cleanupTimer = setInterval(async () => {
     /* ==============================
        1. EXPIRE HOLDING BOOKING
     ============================== */
-    const expiredBookings = await prisma.booking.findMany({
-      where: {
-        status: 'HOLDING',
-        holdExpiresAt: { lt: now }
-      },
-      select: { id: true }
-    });
-
-    await Promise.all(
-      expiredBookings.map((b) =>
-        expireBooking(b.id, 'Booking hết hạn giữ chỗ và đã bị hủy tự động.')
-      )
-    );
+    await expireHoldingBookingsForCron(now);
 
     /* ==============================
        2. HOLD EXPIRE WARNING (<1 phút)
@@ -64,7 +52,7 @@ const cleanupTimer = setInterval(async () => {
     for (const booking of soonExpireBookings) {
       if (booking.notifications.length > 0) continue;
 
-      await sendNotification({
+      await sendNotification(prisma, {
         userId: booking.userId,
         bookingId: booking.id,
         type: 'HOLD_EXPIRE',
@@ -113,7 +101,7 @@ const cleanupTimer = setInterval(async () => {
       const departure =
         booking.trip.delayedDepartureTime ?? booking.trip.departureTime;
 
-      await sendNotification({
+      await sendNotification(prisma, {
         userId: booking.userId,
         bookingId: booking.id,
         type: 'REMINDER',
@@ -145,7 +133,7 @@ const cleanupTimer = setInterval(async () => {
       for (const booking of trip.bookings) {
         if (booking.notifications.length > 0) continue;
 
-        await sendNotification({
+        await sendNotification(prisma, {
           userId: booking.userId,
           bookingId: booking.id,
           type: 'DELAY',

@@ -446,6 +446,18 @@ export async function createBooking(input: {
   });
 }
 
+export async function holdOrGetBooking(input: {
+  userId?: string;
+  tripId: string;
+  seatIds: string[];
+  contactEmail: string;
+}) {
+  return apiRequest<ApiBooking>('/api/bookings/hold-or-get', {
+    method: 'POST',
+    body: input
+  });
+}
+
 export async function getBooking(bookingId: string) {
   return apiRequest<ApiBooking>(`/api/bookings/${bookingId}`);
 }

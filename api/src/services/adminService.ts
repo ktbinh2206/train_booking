@@ -106,7 +106,7 @@ export async function setTripStatus(tripId: string, input: { status: 'ON_TIME' |
           data: { isAffected: true }
         });
 
-        await sendNotification({
+        await sendNotification(prisma, {
           userId: booking.userId,
           bookingId: booking.id,
           type: 'DELAY',
@@ -155,7 +155,7 @@ export async function setTripStatus(tripId: string, input: { status: 'ON_TIME' |
           }
         });
 
-        await sendNotification({
+        await sendNotification(prisma, {
           userId: booking.userId,
           bookingId: booking.id,
           type: 'CANCEL',
@@ -182,7 +182,7 @@ export async function setTripStatus(tripId: string, input: { status: 'ON_TIME' |
           }
         });
 
-        await sendNotification({
+        await sendNotification(prisma, {
           userId: booking.userId,
           bookingId: booking.id,
           type: 'CANCEL',

@@ -8,6 +8,7 @@ import { bookingRoutes } from './routes/bookingRoutes';
 import { errorHandler } from './middleware/errorHandler';
 import { metaRoutes } from './routes/metaRoutes';
 import { notificationRoutes } from './routes/notificationRoutes';
+import { sseRoutes } from './routes/sseRoutes';
 import { ticketRoutes } from './routes/ticketRoutes';
 import { tripRoutes } from './routes/tripRoutes';
 import { userRoutes } from './routes/userRoutes';
@@ -33,6 +34,7 @@ export function createApp() {
   app.use('/api/meta', metaRoutes);
   app.use('/api/auth', authRoutes);
   app.use('/api/trips', tripRoutes);
+  app.use('/api/sse', sseRoutes);
   app.get('/api/stations', async (request, response, next) => {
     try {
       const q = typeof request.query.q === 'string' ? request.query.q : undefined;

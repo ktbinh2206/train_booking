@@ -1,7 +1,8 @@
-import { NotificationType } from '@prisma/client';
+import { NotificationType, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 
 export type NotificationEventType = 'REMINDER' | 'DELAY' | 'CANCEL' | 'HOLD_EXPIRE';
+type NotificationDbClient = typeof prisma | Prisma.TransactionClient;
 
 function toDbNotificationType(type: NotificationEventType): NotificationType {
   if (type === 'REMINDER') return NotificationType.REMINDER;
@@ -10,7 +11,7 @@ function toDbNotificationType(type: NotificationEventType): NotificationType {
   return NotificationType.HOLD_EXPIRE;
 }
 
-export async function sendNotification(input: {
+export async function sendNotification(db: NotificationDbClient, input: {
   userId: string;
   type: NotificationEventType;
   message: string;
@@ -18,21 +19,21 @@ export async function sendNotification(input: {
   toEmail?: string;
   toPhone?: string;
 }) {
-  const notification = await prisma.notification.create({
+  const notification = await db.notification.create({
     data: {
       userId: input.userId,
-      bookingId: input.bookingId,
       type: toDbNotificationType(input.type),
-      message: input.message
+      message: input.message,
+      ...(input.bookingId && { bookingId: input.bookingId })
     }
   });
 
   if (input.toEmail) {
     console.log(`[MockEmail] to=${input.toEmail} type=${input.type} message=${input.message}`);
-    await prisma.emailLog.create({
+    await db.emailLog.create({
       data: {
         userId: input.userId,
-        bookingId: input.bookingId,
+        ...(input.bookingId && { bookingId: input.bookingId }),
         kind: input.type,
         subject: `[${input.type}] Train booking notification`,
         toEmail: input.toEmail,

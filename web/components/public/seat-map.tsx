@@ -1,7 +1,6 @@
 'use client';
 
 import { Seat } from '@/lib/types';
-import { useState } from 'react';
 import { formatCurrencyVND } from '@/lib/utils';
 
 interface SeatMapProps {
@@ -103,7 +102,7 @@ export function SeatMap({ seats, selectedSeats, onSeatSelect }: SeatMapProps) {
                               styleKey as keyof typeof seatStatusStyles
                               ]
                               }`}
-                            title={`${seat.seatNumber} - ${formatCurrencyVND(seat.price)}`}
+                            title={`${seat.seatNumber} - ${seat.status === 'holding' ? 'đang giữ' : seat.status === 'sold' ? 'đã bán' : 'còn trống'} - ${formatCurrencyVND(seat.price)}`}
                           >
                             {isSelected ? '✓' : seat.seatNumber}
                           </button>
