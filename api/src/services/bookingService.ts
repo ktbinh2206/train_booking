@@ -13,6 +13,24 @@ function getEffectiveDepartureTime(trip: { departureTime: Date; delayedDeparture
   return trip.delayedDepartureTime ?? trip.departureTime;
 }
 
+export function calculateRefund(departureTime: Date, now: Date, amount: number): number {
+  const msUntilDeparture = departureTime.getTime() - now.getTime();
+  if (msUntilDeparture <= 0) {
+    return 0;
+  }
+
+  const hoursUntilDeparture = msUntilDeparture / (1000 * 60 * 60);
+  if (hoursUntilDeparture > 48) {
+    return Math.floor(amount * 0.75);
+  }
+
+  if (hoursUntilDeparture >= 24) {
+    return Math.floor(amount * 0.5);
+  }
+
+  return Math.floor(amount * 0.25);
+}
+
 export async function createBooking(input: {
   userId: string;
   tripId: string;
@@ -487,9 +505,9 @@ export async function getBookingById(bookingId: string) {
   });
 }
 
-export async function cancelBooking(input: { bookingId: string; reason?: string }) {
+export async function cancelBooking(bookingId: string, userId: string): Promise<{ success: boolean; refundAmount: number }> {
   const booking = await prisma.booking.findUnique({
-    where: { id: input.bookingId },
+    where: { id: bookingId },
     include: {
       trip: true,
       user: true,
@@ -504,57 +522,53 @@ export async function cancelBooking(input: { bookingId: string; reason?: string 
     throw new AppError('Không tìm thấy booking.', 404);
   }
 
-  if (booking.status === BookingStatus.CANCELLED || booking.status === BookingStatus.REFUNDED || booking.status === BookingStatus.EXPIRED) {
+  if (booking.userId !== userId) {
+    throw new AppError('Bạn không có quyền hủy booking này.', 403);
+  }
+
+  if (booking.status === BookingStatus.CANCELLED) {
     throw new AppError('Booking đã được hủy trước đó.', 400);
   }
 
+  if (booking.status !== BookingStatus.PAID) {
+    throw new AppError('Chỉ booking đã thanh toán mới có thể hủy.', 400);
+  }
+
   const departureTime = getEffectiveDepartureTime(booking.trip);
-  if (departureTime.getTime() <= Date.now()) {
+  const now = new Date();
+  if (now.getTime() >= departureTime.getTime()) {
     throw new AppError('Không thể hủy vé sau giờ tàu chạy.', 400);
   }
 
-  const reason = input.reason ?? 'Bạn đã hủy vé thành công';
+  const bookingAmount = Number(booking.totalAmount);
+  const refundAmount = calculateRefund(departureTime, now, bookingAmount);
 
-  const updatedBooking = await prisma.$transaction(async (transaction) => {
-    const nextStatus = booking.status === BookingStatus.PAID ? BookingStatus.CANCELLED : BookingStatus.CANCELLED;
-
+  await prisma.$transaction(async (transaction) => {
     await transaction.booking.update({
       where: { id: booking.id },
       data: {
-        status: nextStatus,
-        expiredAt: new Date()
+        status: BookingStatus.CANCELLED,
+        expiredAt: now
       }
     });
 
-    if (booking.status === BookingStatus.PAID) {
+    if (booking.payment && refundAmount > 0) {
       await transaction.payment.update({
         where: { bookingId: booking.id },
         data: {
           status: 'REFUNDED',
-          refundedAt: new Date(),
+          refundedAt: now,
           transactionRef: `REFUND-${randomUUID().slice(0, 12).toUpperCase()}`
-        }
-      });
-
-      await transaction.refund.create({
-        data: {
-          bookingId: booking.id,
-          amount: booking.totalAmount,
-          status: 'COMPLETED',
-          reason
         }
       });
     }
 
-    return transaction.booking.findUniqueOrThrow({
-      where: { id: booking.id },
-      include: {
-        trip: { include: { train: true } },
-        user: true,
-        bookingSeats: { include: { seat: true } },
-        payment: true,
-        ticket: true,
-        refunds: true
+    await transaction.refund.create({
+      data: {
+        bookingId: booking.id,
+        amount: new Decimal(refundAmount),
+        status: 'COMPLETED',
+        reason: 'User cancelled'
       }
     });
   });
@@ -563,11 +577,14 @@ export async function cancelBooking(input: { bookingId: string; reason?: string 
     userId: booking.userId,
     bookingId: booking.id,
     type: 'CANCEL',
-    message: reason,
+    message: `Booking ${booking.code} đã được hủy. Hoàn tiền: ${refundAmount} VND`,
     toEmail: booking.contactEmail
   });
 
-  return updatedBooking;
+  return {
+    success: true,
+    refundAmount
+  };
 }
 
 async function getReservedSeatIds(tripId: string, now: Date) {

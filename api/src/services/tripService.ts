@@ -457,6 +457,7 @@ export async function searchTripsByStationAndDate(input: {
     totalPages: Math.max(1, Math.ceil(total / pageSize))
   };
 }
+
 export async function getTripDetail(tripId: string, now = new Date()) {
   const trip = await prisma.trip.findUnique({
     where: { id: tripId },
