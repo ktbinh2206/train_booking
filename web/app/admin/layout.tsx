@@ -86,7 +86,7 @@ export default function AdminLayout({
       {/* Sidebar */}
       <div
         className={`fixed lg:relative inset-y-0 left-0 z-50 w-64 bg-gray-900 text-white transition-transform duration-300 ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full hidden'
         }`}
       >
         <div className="h-full flex flex-col">
@@ -140,7 +140,7 @@ export default function AdminLayout({
         <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4 flex items-center justify-between">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="lg:hidden p-2 hover:bg-gray-100 rounded-lg"
+            className="p-2 hover:bg-gray-100 rounded-lg"
           >
             {sidebarOpen ? (
               <X className="w-5 h-5" />
