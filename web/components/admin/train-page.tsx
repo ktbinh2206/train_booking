@@ -14,6 +14,7 @@ export function TrainPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [trainModalOpen, setTrainModalOpen] = useState(false);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [templateModalMode, setTemplateModalMode] = useState<'create' | 'edit' | 'view'>('create');
   const [editingTrain, setEditingTrain] = useState<AdminTrain | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<AdminCarriage | null>(null);
 
@@ -35,7 +36,7 @@ export function TrainPage() {
         <h1 className="text-2xl font-semibold">Train management</h1>
         <div className="flex gap-2">
           <Button onClick={() => { setEditingTrain(null); setTrainModalOpen(true); }}>New train</Button>
-          <Button variant="outline" onClick={() => { setEditingTemplate(null); setTemplateModalOpen(true); }}>New carriage template</Button>
+          <Button variant="outline" onClick={() => { setTemplateModalMode('create'); setEditingTemplate(null); setTemplateModalOpen(true); }}>New carriage template</Button>
         </div>
       </div>
       <TrainTable
@@ -51,17 +52,31 @@ export function TrainPage() {
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-medium">Carriage templates</h2>
         </div>
-        <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-          {templates.map((template) => (
-            <div key={template.id} className="rounded-lg border p-3">
-              <p className="font-medium">{template.code}</p>
-              <p className="text-xs text-slate-500">{template.type}</p>
-              <div className="mt-2 flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => { setEditingTemplate(template); setTemplateModalOpen(true); }}>Edit</Button>
-                <Button size="sm" variant="outline" onClick={async () => { await deleteAdminCarriage(template.id); await load(); }}>Delete</Button>
-              </div>
-            </div>
-          ))}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b text-slate-500">
+                <th className="py-2 pr-3 font-medium">Code</th>
+                <th className="py-2 pr-3 font-medium">Type</th>
+                <th className="py-2 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {templates.map((template) => (
+                <tr key={template.id} className="border-b last:border-b-0">
+                  <td className="py-2 pr-3 font-medium">{template.code}</td>
+                  <td className="py-2 pr-3 text-slate-600">{template.type}</td>
+                  <td className="py-2">
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" onClick={() => { setTemplateModalMode('view'); setEditingTemplate(template); setTemplateModalOpen(true); }}>View</Button>
+                      <Button size="sm" variant="outline" onClick={() => { setTemplateModalMode('edit'); setEditingTemplate(template); setTemplateModalOpen(true); }}>Edit</Button>
+                      <Button size="sm" variant="outline" onClick={async () => { await deleteAdminCarriage(template.id); await load(); }}>Delete</Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
       <TrainModal
@@ -77,10 +92,11 @@ export function TrainPage() {
       />
       <CarriageTemplateModal
         open={templateModalOpen}
+        mode={templateModalMode}
         template={editingTemplate}
         onClose={() => setTemplateModalOpen(false)}
         onSave={async (value) => {
-          if (editingTemplate) await updateAdminCarriage(editingTemplate.id, value);
+          if (templateModalMode === 'edit' && editingTemplate) await updateAdminCarriage(editingTemplate.id, value);
           else await createAdminCarriage(value);
           setTemplateModalOpen(false);
           await load();

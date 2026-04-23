@@ -148,15 +148,19 @@ export default function TripsPage() {
     }
   };
 
-  const toUiStatus = (status: 'ON_TIME' | 'DELAYED' | 'CANCELLED') => {
+  const toUiStatus = (status: 'ON_TIME' | 'DELAYED' | 'CANCELLED' | 'DEPARTED' | 'COMPLETED') => {
     if (status === 'ON_TIME') return 'Đúng giờ';
     if (status === 'DELAYED') return 'Trễ';
+    if (status === 'DEPARTED') return 'Đã khởi hành';
+    if (status === 'COMPLETED') return 'Đã hoàn thành';
     return 'Đã hủy';
   };
 
-  const toStatusClass = (status: 'ON_TIME' | 'DELAYED' | 'CANCELLED') => {
+  const toStatusClass = (status: 'ON_TIME' | 'DELAYED' | 'CANCELLED' | 'DEPARTED' | 'COMPLETED') => {
     if (status === 'ON_TIME') return 'bg-green-100 text-green-800';
     if (status === 'DELAYED') return 'bg-yellow-100 text-yellow-800';
+    if (status === 'DEPARTED') return 'bg-blue-100 text-blue-800';
+    if (status === 'COMPLETED') return 'bg-purple-100 text-purple-800';
     return 'bg-red-100 text-red-800';
   };
 
@@ -202,6 +206,7 @@ export default function TripsPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-600">Tàu</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-600">Tuyến đường</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-600">Khởi hành</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-600">Đến nơi</th> 
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-600">Trạng thái</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-600">Thao tác</th>
                 </tr>
@@ -211,7 +216,12 @@ export default function TripsPage() {
                   <tr key={trip.id} className="hover:bg-gray-50">
                     <td className="px-6 py-3 text-sm font-medium text-gray-900">{trip.train.code}</td>
                     <td className="px-6 py-3 text-sm text-gray-600">{trip.origin} → {trip.destination}</td>
-                    <td className="px-6 py-3 text-sm text-gray-600">{new Date(trip.departureTime).toLocaleString('vi-VN')}</td>
+                    <td className="px-6 py-3 text-sm text-gray-600">
+                      {new Date(trip.departureTime).toLocaleString('vi-VN')}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-gray-600">
+                      {new Date(trip.arrivalTime).toLocaleString('vi-VN')}
+                    </td>
                     <td className="px-6 py-3">
                       <span className={`px-2 py-1 rounded-full text-xs font-semibold ${toStatusClass(trip.status)}`}>
                         {toUiStatus(trip.status)}

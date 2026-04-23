@@ -43,12 +43,9 @@ export function TrainTable({
         <table className="min-w-full divide-y divide-slate-200">
           <thead className="bg-slate-50">
             <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th className="px-4 py-3">Train code</th>
-              <th className="px-4 py-3">Train name</th>
-              <th className="px-4 py-3">Số toa</th>
-              <th className="px-4 py-3">Tổng số ghế</th>
-              <th className="px-4 py-3">Tổng giá min/max</th>
-              <th className="px-4 py-3">Actions</th>
+              <th className="px-4 py-3">Mã tàu</th>
+              <th className="px-4 py-3">Tên tàu</th>
+              <th className="px-4 py-3">Thao tác</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -62,9 +59,6 @@ export function TrainTable({
               <tr key={train.id} className="text-sm text-slate-700">
                 <td className="px-4 py-3 font-semibold text-slate-950">{train.code}</td>
                 <td className="px-4 py-3">{train.name}</td>
-                <td className="px-4 py-3">{train.carriageCount}</td>
-                <td className="px-4 py-3">{train.seatCount}</td>
-                <td className="px-4 py-3">{train.minCarriagePrice != null && train.maxCarriagePrice != null ? `${formatCurrencyVND(train.minCarriagePrice)} - ${formatCurrencyVND(train.maxCarriagePrice)}` : '—'}</td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" onClick={() => onEdit(train.id)}>

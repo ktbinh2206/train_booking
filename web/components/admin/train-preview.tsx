@@ -22,7 +22,7 @@ function SeatCell({
   return (
     <div
       className={cn(
-        'flex h-12 w-12 items-center justify-center rounded-xl border text-[11px] font-semibold transition',
+        'flex h-6 w-6 items-center justify-center rounded-xl border text-[11px] font-semibold transition',
         empty
           ? 'border-dashed border-slate-200 bg-white text-slate-300'
           : 'border-slate-200 bg-white text-slate-950 shadow-sm',
@@ -36,7 +36,7 @@ function SeatCell({
 
 export const TrainPreview = memo(function TrainPreview({ carriages, className }: Props) {
   return (
-    <div className={cn('overflow-x-auto', className)}>
+    <div className={cn('overflow-x-auto w-full', className)}>
       <div className="flex min-w-max gap-4 pb-2">
         {carriages.map((carriage) => {
           const rows = carriage.layout.length;

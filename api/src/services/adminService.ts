@@ -293,7 +293,7 @@ export async function getReports() {
     prisma.trip.findMany({ include: { bookings: { include: { payment: true } } } }),
     prisma.booking.findMany({ include: { payment: true } }),
     prisma.payment.findMany({ where: { status: 'PAID' } }),
-    prisma.seat.count()
+    prisma.bookingSeat.count()
   ]);
 
   const activeBookings = bookings.filter((booking: { status: string; seatCount: number }) => booking.status === 'PAID' || booking.status === 'HOLDING');

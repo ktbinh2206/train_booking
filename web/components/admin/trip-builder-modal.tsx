@@ -48,7 +48,40 @@ export function TripBuilderModal({ open, mode = 'create', trains, stations, temp
   const [arrivalTime, setArrivalTime] = useState('');
   const [price, setPrice] = useState(0);
   const [carriages, setCarriages] = useState<DraftCarriage[]>([]);
+  const [templateQuery, setTemplateQuery] = useState('');
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const readOnly = mode === 'view';
+
+  const toUiStatus = (status: 'ON_TIME' | 'DELAYED' | 'CANCELLED' | 'DEPARTED' | 'COMPLETED') => {
+    if (status === 'ON_TIME') return 'Đúng giờ';
+    if (status === 'DELAYED') return 'Trễ';
+    if (status === 'DEPARTED') return 'Đã khởi hành';
+    if (status === 'COMPLETED') return 'Đã hoàn thành';
+    return 'Đã hủy';
+  };
+
+  const toStatusClass = (status: 'ON_TIME' | 'DELAYED' | 'CANCELLED' | 'DEPARTED' | 'COMPLETED') => {
+    if (status === 'ON_TIME') return 'bg-green-100 text-green-800';
+    if (status === 'DELAYED') return 'bg-yellow-100 text-yellow-800';
+    if (status === 'DEPARTED') return 'bg-blue-100 text-blue-800';
+    if (status === 'COMPLETED') return 'bg-purple-100 text-purple-800';
+    return 'bg-red-100 text-red-800';
+  };
+
+  const addCarriageFromTemplate = (template: AdminCarriage) => {
+    setCarriages((current) => {
+      const sameTemplateCount = current.filter((item) => item.templateId === template.id).length;
+      return [
+        ...current,
+        {
+          templateId: template.id,
+          code: `${template.code}-${sameTemplateCount + 1}`,
+          basePrice: price,
+          layout: template.layout ?? null
+        }
+      ];
+    });
+  };
 
   useEffect(() => {
     if (!open) {
@@ -85,6 +118,27 @@ export function TripBuilderModal({ open, mode = 'create', trains, stations, temp
     );
   }, [open, initialTrip, templates]);
 
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    if (!selectedTemplateId && templates.length > 0) {
+      setSelectedTemplateId(templates[0].id);
+    }
+  }, [open, templates, selectedTemplateId]);
+
+  const filteredTemplates = useMemo(() => {
+    const query = templateQuery.trim().toLowerCase();
+    if (!query) {
+      return templates;
+    }
+
+    return templates.filter((template) =>
+      template.code.toLowerCase().includes(query) || template.type.toLowerCase().includes(query)
+    );
+  }, [templates, templateQuery]);
+
   const previewCarriages = useMemo(() => carriages.map((item) => {
     const template = templates.find((tmp) => tmp.id === item.templateId);
     const layout = item.layout ?? template?.layout ?? null;
@@ -97,11 +151,11 @@ export function TripBuilderModal({ open, mode = 'create', trains, stations, temp
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
-      <DialogContent className="sm:max-w-6xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-6xl max-h-[90vh] w-[90vw]">
         <DialogHeader>
           <DialogTitle>{mode === 'create' ? 'Create trip' : mode === 'edit' ? 'Edit trip' : 'View trip'}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
+        <div className="space-y-4 overflow-auto">
           {loadingInitial ? <p className="text-sm text-slate-500">Loading trip data...</p> : null}
           <div className="flex gap-2">
             {[1, 2, 3, 4].map((index) => <Button key={index} size="sm" variant={step === index ? 'default' : 'outline'} onClick={() => setStep(index)} disabled={loadingInitial}>{`Step ${index}`}</Button>)}
@@ -123,33 +177,116 @@ export function TripBuilderModal({ open, mode = 'create', trains, stations, temp
               </select>
               <Input type="datetime-local" value={departureTime} onChange={(event) => setDepartureTime(event.target.value)} disabled={readOnly || loadingInitial} />
               <Input type="datetime-local" value={arrivalTime} onChange={(event) => setArrivalTime(event.target.value)} disabled={readOnly || loadingInitial} />
+              {initialTrip && (
+                <div className="bg-gray-50 p-3 rounded">
+                  Trạng thái:
+                  <span className={`px-2 py-1 rounded-full text-xs font-semibold ${toStatusClass(initialTrip.status)}`}>
+                    {toUiStatus(initialTrip.status)}
+                  </span>
+
+                  {initialTrip.status === 'DELAYED' && (
+                    <div className="text-yellow-600">
+                      Delay {initialTrip.delayMinutes} phút
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ) : null}
           {step === 2 ? (
-            <div className="space-y-2">
-              <div className="grid gap-2 md:grid-cols-2">
-                {templates.map((template) => (
-                  <Button
-                    key={template.id}
-                    variant="outline"
+            <div className="grid grid-cols-2 gap-4 h-[500px]">
+              {/* LEFT: TEMPLATE LIST */}
+              <div className="border rounded-md flex flex-col ">
+                <div className="p-3 border-b font-medium">Templates</div>
+
+                <div className="p-2">
+                  <Input
+                    value={templateQuery}
+                    onChange={(e) => setTemplateQuery(e.target.value)}
+                    placeholder="Search..."
                     disabled={readOnly || loadingInitial}
-                    onClick={() => setCarriages((current) => [...current, { templateId: template.id, code: `${template.code}-${current.length + 1}`, basePrice: price, layout: template.layout ?? null }])}
-                  >
-                    Add {template.code}
-                  </Button>
-                ))}
+                  />
+                </div>
+
+                {/* SCROLL */}
+                <div className="flex-1 overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-white z-10">
+                      <tr>
+                        <th className="px-3 py-2">Code</th>
+                        <th className="px-3 py-2">Type</th>
+                        <th className="px-3 py-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredTemplates.map((t) => (
+                        <tr key={t.id} className="border-t">
+                          <td className="px-3 py-2">{t.code}</td>
+                          <td className="px-3 py-2">{t.type}</td>
+                          <td className="px-3 py-2">
+                            <Button size="sm" onClick={() => addCarriageFromTemplate(t)}>
+                              Add
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <div className="space-y-2">
-                {carriages.map((carriage, index) => (
-                  <div key={`${carriage.templateId}-${index}`} className="grid grid-cols-12 gap-2">
-                    <Input className="col-span-5" value={carriage.code} onChange={(event) => setCarriages((current) => current.map((it, i) => i === index ? { ...it, code: event.target.value } : it))} disabled={readOnly || loadingInitial} />
-                    <Input className="col-span-4" type="number" value={carriage.basePrice} onChange={(event) => setCarriages((current) => current.map((it, i) => i === index ? { ...it, basePrice: Number(event.target.value || 0) } : it))} disabled={readOnly || loadingInitial} />
-                    <Button className="col-span-3" variant="outline" onClick={() => setCarriages((current) => current.filter((_, i) => i !== index))} disabled={readOnly || loadingInitial}>Remove</Button>
-                    <p className="col-span-12 text-xs text-slate-500">
-                      Seats: {layoutJsonToTrainGrid(carriage.layout ?? null).flat().filter(Boolean).length}
-                    </p>
-                  </div>
-                ))}
+
+              {/* RIGHT: SELECTED CARRIAGES */}
+              <div className="border rounded-md flex flex-col overflow-hidden">
+                <div className="p-3 border-b font-medium">Carriages</div>
+
+                <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                  {carriages.map((c, i) => (
+                    <div key={i} className="border rounded p-2">
+                      <div className="flex gap-2">
+                        <Input
+                          value={c.code}
+                          disabled={readOnly}
+                          onChange={(e) =>
+                            setCarriages((prev) =>
+                              prev.map((it, idx) =>
+                                idx === i ? { ...it, code: e.target.value } : it
+                              )
+                            )
+                          }
+                        />
+                        <Input
+                          type="number"
+                          value={c.basePrice}
+                          disabled={readOnly}
+                          onChange={(e) =>
+                            setCarriages((prev) =>
+                              prev.map((it, idx) =>
+                                idx === i
+                                  ? { ...it, basePrice: Number(e.target.value) }
+                                  : it
+                              )
+                            )
+                          }
+                        />
+                        <Button
+                          variant="destructive"
+                          onClick={() =>
+                            setCarriages((prev) => prev.filter((_, idx) => idx !== i))
+                          }
+                        >
+                          X
+                        </Button>
+                      </div>
+
+                      <div className="text-xs text-gray-500 mt-1">
+                        Seats:{' '}
+                        {layoutJsonToTrainGrid(c.layout ?? null)
+                          .flat()
+                          .filter(Boolean).length}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           ) : null}
@@ -174,6 +311,6 @@ export function TripBuilderModal({ open, mode = 'create', trains, stations, temp
           </Button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
+    </Dialog> 
   );
 }

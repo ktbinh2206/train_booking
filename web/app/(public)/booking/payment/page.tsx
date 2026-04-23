@@ -13,6 +13,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { getBooking, payBooking } from '@/lib/api';
 import { VN } from '@/lib/translations';
 import { formatCurrencyVND } from '@/lib/utils';
+import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
 function PaymentPageContent() {
   const searchParams = useSearchParams();
@@ -23,6 +24,9 @@ function PaymentPageContent() {
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [expired, setExpired] = useState(false);
+  const [showExpiredModal, setShowExpiredModal] = useState(false);
 
   const [paymentMethod, setPaymentMethod] = useState('card');
   const [cardData, setCardData] = useState({
@@ -123,7 +127,13 @@ function PaymentPageContent() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
         <div className="lg:col-span-2 space-y-8">
-          <CountdownTimer minutes={5} />
+          <CountdownTimer
+            expiresAtISO={booking.holdExpiresAt}
+            onExpire={() => {
+              setExpired(true);
+              setShowExpiredModal(true);
+            }}
+          />
 
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-6">{VN.booking.paymentMethods}</h2>
@@ -267,7 +277,28 @@ function PaymentPageContent() {
           </div>
         </div>
       </div>
+      <AlertDialog open={showExpiredModal}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Booking đã hết hạn giữ chỗ</AlertDialogTitle>
+            <AlertDialogDescription>
+              Vui lòng quay lại trang tìm kiếm và chọn ghế lại để tiếp tục đặt vé.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={() => {
+                setShowExpiredModal(false);
+                router.replace('/search');
+              }}
+            >
+              Đồng ý
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>  
     </div>
+    
   );
 }
 
