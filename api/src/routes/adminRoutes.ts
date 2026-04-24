@@ -62,6 +62,7 @@ import {
   deleteTrainRailwayAdmin,
   listCarriageTemplatesRailwayAdmin,
   listTrainsRailwayAdmin,
+  updateTripWithCarriagesRailwayAdmin,
   updateCarriageTemplateRailwayAdmin,
   updateTrainRailwayAdmin
 } from '../services/railwayAdminService';
@@ -288,6 +289,22 @@ adminRoutes.post('/trips', asyncHandler(async (request, response) => {
 
 adminRoutes.put('/trips/:id', asyncHandler(async (request, response) => {
   const payload = tripPayloadSchema.partial().parse(request.body);
+  if (payload.carriages) {
+    response.json(await updateTripWithCarriagesRailwayAdmin(getIdParam(request, 'id'), {
+      trainId: payload.trainId,
+      originStationId: payload.originStationId,
+      destinationStationId: payload.destinationStationId,
+      departureTime: payload.departureTime,
+      arrivalTime: payload.arrivalTime,
+      price: payload.price,
+      status: payload.status,
+      delayMinutes: payload.delayMinutes,
+      note: payload.note,
+      carriages: payload.carriages
+    }));
+    return;
+  }
+
   response.json(await updateTripAdmin(getIdParam(request, 'id'), payload));
 }));
 
@@ -407,8 +424,14 @@ adminRoutes.delete('/users/:id', asyncHandler(async (request, response) => {
   response.json(await deleteUserAdmin(getIdParam(request, 'id')));
 }));
 
-adminRoutes.get('/reports', asyncHandler(async (_request, response) => {
-  response.json(await getReports());
+adminRoutes.get('/reports', asyncHandler(async (request, response) => {
+  const querySchema = z.object({
+    from: z.string().optional(),
+    to: z.string().optional()
+  });
+
+  const query = querySchema.parse(request.query);
+  response.json(await getReports(query));
 }));
 
 adminRoutes.get('/recent-bookings', asyncHandler(async (request, response) => {

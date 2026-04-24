@@ -6,6 +6,60 @@ import { AppError } from '../lib/errors';
 import { recordEmail } from '../lib/communications';
 import { sendNotification } from './notificationService';
 
+type ReportRangeInput = {
+  from?: string | undefined;
+  to?: string | undefined;
+};
+
+function toDateKey(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function parseReportBoundary(value: string | undefined, boundary: 'start' | 'end') {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const iso = boundary === 'start'
+      ? `${trimmed}T00:00:00.000Z`
+      : `${trimmed}T23:59:59.999Z`;
+    const date = new Date(iso);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const date = new Date(trimmed);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function buildDateTimeFilter(input?: ReportRangeInput) {
+  const from = parseReportBoundary(input?.from, 'start');
+  const to = parseReportBoundary(input?.to, 'end');
+
+  if (from && to && from.getTime() > to.getTime()) {
+    throw new AppError('Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.', 400);
+  }
+
+  const filter: Prisma.DateTimeFilter = {};
+  if (from) {
+    filter.gte = from;
+  }
+  if (to) {
+    filter.lte = to;
+  }
+
+  return {
+    filter: Object.keys(filter).length > 0 ? filter : null,
+    from,
+    to
+  };
+}
+
 export async function createTrip(input: {
   trainId: string;
   origin: string;
@@ -288,16 +342,52 @@ export async function deleteSeat(seatId: string) {
   return { success: true };
 }
 
-export async function getReports() {
-  const [trips, bookings, payments, totalSeats] = await Promise.all([
-    prisma.trip.findMany({ include: { bookings: { include: { payment: true } } } }),
-    prisma.booking.findMany({ include: { payment: true } }),
-    prisma.payment.findMany({ where: { status: 'PAID' } }),
-    prisma.bookingSeat.count()
+export async function getReports(input?: ReportRangeInput) {
+  const { filter } = buildDateTimeFilter(input);
+
+  const [trips, bookings, payments, tripCarriages] = await Promise.all([
+    prisma.trip.findMany({ where: filter ? { departureTime: filter } : undefined, include: { bookings: { include: { payment: true } } } }),
+    prisma.booking.findMany({ where: filter ? { trip: { departureTime: filter } } : undefined, include: { payment: true } }),
+    prisma.payment.findMany({ where: filter ? { status: 'PAID', booking: { trip: { departureTime: filter } } } : { status: 'PAID' } }),
+    prisma.tripCarriage.findMany({ where: filter ? { trip: { departureTime: filter } } : undefined, select: { id: true } })
   ]);
 
   const activeBookings = bookings.filter((booking: { status: string; seatCount: number }) => booking.status === 'PAID' || booking.status === 'HOLDING');
   const revenue = payments.reduce((sum: number, payment: { amount: { toNumber: () => number } }) => sum + payment.amount.toNumber(), 0);
+  const totalSeats = tripCarriages.length === 0
+    ? 0
+    : await prisma.tripSeat.count({ where: { carriageId: { in: tripCarriages.map((carriage) => carriage.id) } } });
+
+  const revenueByDateMap = new Map<string, number>();
+  for (const payment of payments) {
+    const sourceDate = payment.paidAt ?? payment.createdAt;
+    const key = toDateKey(sourceDate);
+    revenueByDateMap.set(key, (revenueByDateMap.get(key) ?? 0) + payment.amount.toNumber());
+  }
+
+  const revenueByDate = filter && (filter.gte || filter.lte)
+    ? (() => {
+        const start = filter.gte ? new Date(`${toDateKey(filter.gte)}T00:00:00.000Z`) : null;
+        const end = filter.lte ? new Date(`${toDateKey(filter.lte)}T00:00:00.000Z`) : null;
+
+        if (start && end) {
+          const days: Array<{ date: string; revenue: number }> = [];
+          const cursor = new Date(start);
+          while (cursor.getTime() <= end.getTime()) {
+            const key = toDateKey(cursor);
+            days.push({ date: key, revenue: revenueByDateMap.get(key) ?? 0 });
+            cursor.setUTCDate(cursor.getUTCDate() + 1);
+          }
+          return days;
+        }
+
+        return Array.from(revenueByDateMap.entries())
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([date, amount]) => ({ date, revenue: amount }));
+      })()
+    : Array.from(revenueByDateMap.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([date, amount]) => ({ date, revenue: amount }));
 
   return {
     totalTrips: trips.length,
@@ -309,7 +399,8 @@ export async function getReports() {
     delayedTrips: trips.filter((trip: { status: string }) => trip.status === 'DELAYED').length,
     cancelledTrips: trips.filter((trip: { status: string }) => trip.status === 'CANCELLED').length,
     revenue,
-    occupancyRate: totalSeats === 0 ? 0 : Math.round((activeBookings.reduce((sum: number, booking: { seatCount: number }) => sum + booking.seatCount, 0) / totalSeats) * 1000) / 10
+    occupancyRate: totalSeats === 0 ? 0 : Math.round((activeBookings.reduce((sum: number, booking: { seatCount: number }) => sum + booking.seatCount, 0) / totalSeats) * 1000) / 10,
+    revenueByDate
   };
 }
 

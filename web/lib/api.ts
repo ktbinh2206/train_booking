@@ -71,12 +71,22 @@ type ApiBooking = {
   status: 'HOLDING' | 'PAID' | 'EXPIRED' | 'CANCELLED' | 'REFUNDED';
   holdExpiresAt: string | null;
   expiredAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
   isAffected?: boolean;
   totalAmount: number;
   contactEmail: string;
   seatCount: number;
   seatIds: string[];
   seatCodes: string[];
+  bookingSeats?: Array<{
+    seatId: string;
+    seatCode: string | null;
+    passengerName: string | null;
+    passengerType: string | null;
+    passengerId: string | null;
+    priceSnapshot: number;
+  }>;
   user: {
     id: string;
     name: string;
@@ -102,6 +112,8 @@ type ApiBooking = {
     method: string;
     amount: number;
     transactionRef: string | null;
+    paidAt?: string | null;
+    refundedAt?: string | null;
   } | null;
   ticket: {
     id: string;
@@ -477,6 +489,22 @@ export async function cancelBooking(bookingId: string, reason?: string) {
   });
 }
 
+export async function updateBookingCheckoutInfo(input: {
+  bookingId: string;
+  contactEmail: string;
+  seats: Array<{
+    seatId: string;
+    passengerName: string;
+    passengerType: string;
+    passengerId?: string;
+  }>;
+}) {
+  return apiRequest<ApiBooking>('/api/bookings/update-checkout', {
+    method: 'POST',
+    body: input
+  });
+}
+
 export async function listBookings(userId?: string) {
   return apiRequest<ApiBooking[]>('/api/bookings', {
     params: { userId: userId || undefined }
@@ -540,19 +568,32 @@ export async function deleteNotification(notificationId: string) {
   });
 }
 
-export async function getAdminReports() {
-  return apiRequest<{
-    totalTrips: number;
-    totalBookings: number;
-    activeBookings: number;
-    paidBookings: number;
-    cancelledBookings: number;
-    refundedBookings: number;
-    delayedTrips: number;
-    cancelledTrips: number;
-    revenue: number;
-    occupancyRate: number;
-  }>('/api/admin/reports');
+export type AdminReportRevenuePoint = {
+  date: string;
+  revenue: number;
+};
+
+export type AdminReportResponse = {
+  totalTrips: number;
+  totalBookings: number;
+  activeBookings: number;
+  paidBookings: number;
+  cancelledBookings: number;
+  refundedBookings: number;
+  delayedTrips: number;
+  cancelledTrips: number;
+  revenue: number;
+  occupancyRate: number;
+  revenueByDate: AdminReportRevenuePoint[];
+};
+
+export async function getAdminReports(params?: { from?: string; to?: string }) {
+  return apiRequest<AdminReportResponse>('/api/admin/reports', {
+    params: {
+      from: params?.from,
+      to: params?.to
+    }
+  });
 }
 
 export type AdminPagedResponse<T> = {
@@ -803,6 +844,13 @@ export async function updateAdminTrip(tripId: string, input: Partial<{
   price: number;
   status: 'ON_TIME' | 'DELAYED' | 'CANCELLED';
   delayMinutes: number;
+  note: string | null;
+  carriages: Array<{
+    templateId: string;
+    code: string;
+    orderIndex: number;
+    basePrice: number;
+  }>;
 }>) {
   return apiRequest<AdminTrip>(`/api/admin/trips/${tripId}`, {
     method: 'PUT',

@@ -25,7 +25,7 @@ export function serializeTrip(trip: Trip & { train?: Train | null }) {
 export function serializeBooking(booking: Booking & {
   trip: Trip & { train: Train };
   user: User;
-  bookingSeats?: Array<{ seatId: string; seat?: TripSeat | null }>;
+  bookingSeats?: Array<{ seatId: string; seat?: TripSeat | null; passengerName?: string | null; passengerType?: string | null; passengerId?: string | null; priceSnapshot: { toNumber: () => number } }>;
   payment: Payment | null;
   ticket: Ticket | null;
   refunds?: Array<{ id: string; amount: { toNumber: () => number }; status: string; reason: string | null; createdAt: Date }>;
@@ -36,12 +36,22 @@ export function serializeBooking(booking: Booking & {
     status: booking.status,
     holdExpiresAt: booking.holdExpiresAt?.toISOString() ?? null,
     expiredAt: booking.expiredAt?.toISOString() ?? null,
+    createdAt: booking.createdAt.toISOString(),
+    updatedAt: booking.updatedAt.toISOString(),
     isAffected: booking.isAffected,
     totalAmount: moneyToNumber(booking.totalAmount),
     contactEmail: booking.contactEmail,
     seatCount: booking.seatCount,
     seatIds: booking.bookingSeats?.map((item) => item.seatId) ?? [],
     seatCodes: booking.bookingSeats?.map((item) => item.seat?.seatNumber).filter((code): code is string => Boolean(code)) ?? [],
+    bookingSeats: booking.bookingSeats?.map((item) => ({
+      seatId: item.seatId,
+      seatCode: item.seat?.seatNumber ?? null,
+      passengerName: item.passengerName ?? null,
+      passengerType: item.passengerType ?? null,
+      passengerId: item.passengerId ?? null,
+      priceSnapshot: moneyToNumber(item.priceSnapshot)
+    })) ?? [],
     user: {
       id: booking.user.id,
       name: booking.user.name,

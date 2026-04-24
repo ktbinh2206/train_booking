@@ -9,7 +9,13 @@ import { layoutJsonToTrainGrid } from '@/lib/train-management';
 import type { AdminCarriage, AdminStation, AdminTrain, AdminTripDetail } from '@/lib/api';
 import type { TrainLayoutJson } from '@/lib/train-layout';
 
-type DraftCarriage = { templateId: string; code: string; basePrice: number; layout?: TrainLayoutJson | null };
+type DraftCarriage = {
+  templateId: string;
+  code: string;
+  orderIndex: number;
+  basePrice: number;
+  layout?: TrainLayoutJson | null;
+};
 
 type Props = {
   open: boolean;
@@ -68,6 +74,14 @@ export function TripBuilderModal({ open, mode = 'create', trains, stations, temp
     return 'bg-red-100 text-red-800';
   };
 
+  const nextCarriageOrderIndex = (items: DraftCarriage[]) => {
+    if (items.length === 0) {
+      return 0;
+    }
+
+    return Math.max(...items.map((item) => item.orderIndex)) + 1;
+  };
+
   const addCarriageFromTemplate = (template: AdminCarriage) => {
     setCarriages((current) => {
       const sameTemplateCount = current.filter((item) => item.templateId === template.id).length;
@@ -76,6 +90,7 @@ export function TripBuilderModal({ open, mode = 'create', trains, stations, temp
         {
           templateId: template.id,
           code: `${template.code}-${sameTemplateCount + 1}`,
+          orderIndex: nextCarriageOrderIndex(current),
           basePrice: price,
           layout: template.layout ?? null
         }
@@ -112,6 +127,7 @@ export function TripBuilderModal({ open, mode = 'create', trains, stations, temp
         .map((item, index) => ({
           templateId: item.templateId ?? templates[index]?.id ?? '',
           code: item.code,
+          orderIndex: item.orderIndex,
           basePrice: Number(item.basePrice),
           layout: item.layout ?? null
         }))
@@ -241,7 +257,7 @@ export function TripBuilderModal({ open, mode = 'create', trains, stations, temp
 
                 <div className="flex-1 overflow-y-auto p-2 space-y-2">
                   {carriages.map((c, i) => (
-                    <div key={i} className="border rounded p-2">
+                    <div key={`${c.orderIndex}-${i}`} className="border rounded p-2">
                       <div className="flex gap-2">
                         <Input
                           value={c.code}
@@ -270,6 +286,7 @@ export function TripBuilderModal({ open, mode = 'create', trains, stations, temp
                         />
                         <Button
                           variant="destructive"
+                          disabled={readOnly || loadingInitial}
                           onClick={() =>
                             setCarriages((prev) => prev.filter((_, idx) => idx !== i))
                           }
@@ -304,7 +321,12 @@ export function TripBuilderModal({ open, mode = 'create', trains, stations, temp
               departureTime: new Date(departureTime).toISOString(),
               arrivalTime: new Date(arrivalTime).toISOString(),
               price,
-              carriages: carriages.map((item, index) => ({ ...item, orderIndex: index }))
+              carriages: carriages.map((item) => ({
+                templateId: item.templateId,
+                code: item.code,
+                orderIndex: item.orderIndex,
+                basePrice: item.basePrice
+              }))
             })}
           >
             {mode === 'edit' ? 'Update Trip' : 'Save Trip'}

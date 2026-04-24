@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { cancelBooking, getBooking } from '@/lib/api';
+import { cancelBooking, getBooking, updateBookingCheckoutInfo } from '@/lib/api';
 import { VN } from '@/lib/translations';
 import { formatCurrencyVND, formatDateVn } from '@/lib/utils';
 import { useAuth } from '@/components/auth/auth-provider';
@@ -21,6 +21,7 @@ interface Passenger {
   lastName: string;
   age: string;
   gender: string;
+  passengerType: string;
 }
 
 function CheckoutPageContent() {
@@ -48,7 +49,8 @@ function CheckoutPageContent() {
       firstName: '',
       lastName: '',
       age: '',
-      gender: ''
+      gender: '',
+      passengerType: 'ADULT'
     }))
   );
 
@@ -69,7 +71,8 @@ function CheckoutPageContent() {
         firstName: '',
         lastName: '',
         age: '',
-        gender: ''
+        gender: '',
+        passengerType: 'ADULT'
       }))
     );
   }, [booking?.seatIds.length]);
@@ -156,6 +159,15 @@ function CheckoutPageContent() {
     });
   };
 
+  const seatsPayload = useMemo(() => {
+    return passengers.map((passenger, index) => ({
+      seatId: booking?.seatIds[index] ?? '',
+      passengerName: `${passenger.firstName.trim()} ${passenger.lastName.trim()}`.trim(),
+      passengerType: passenger.passengerType,
+      passengerId: undefined
+    }));
+  }, [booking?.seatIds, passengers]);
+
   const canSubmit =
     !!user &&
     !!booking &&
@@ -173,7 +185,11 @@ function CheckoutPageContent() {
     try {
       setSubmitting(true);
       setError(null);
-
+      await updateBookingCheckoutInfo({
+        bookingId: booking.id,
+        contactEmail: contactInfo.email,
+        seats: seatsPayload
+      });
       router.push(`/booking/payment?bookingId=${booking.id}`);
     } catch (unknownError) {
       const message = unknownError instanceof Error ? unknownError.message : 'Không thể tiếp tục thanh toán.';
@@ -320,6 +336,19 @@ function CheckoutPageContent() {
                         <option value="male">Nam</option>
                         <option value="female">Nữ</option>
                         <option value="other">Khác</option>
+                      </select>
+                    </div>
+                    <div>
+                      <Label htmlFor={`passengerType-${index}`} className="text-sm mb-1">Loại hành khách</Label>
+                      <select
+                        id={`passengerType-${index}`}
+                        value={passenger.passengerType}
+                        onChange={(event) => handlePassengerChange(index, 'passengerType', event.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      >
+                        <option value="ADULT">Người lớn</option>
+                        <option value="CHILD">Trẻ em</option>
+                        <option value="SENIOR">Người cao tuổi</option>
                       </select>
                     </div>
                   </div>

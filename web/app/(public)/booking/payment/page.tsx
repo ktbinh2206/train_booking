@@ -85,6 +85,7 @@ function PaymentPageContent() {
     try {
       setProcessing(true);
       setError(null);
+      
       const paid = await payBooking(booking.id);
       router.push(`/booking/success?bookingId=${paid.id}`);
     } catch (unknownError) {

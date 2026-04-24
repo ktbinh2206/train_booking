@@ -4,7 +4,7 @@ import { asyncHandler } from '../lib/asyncHandler';
 import { getAuthUserFromRequest } from '../lib/auth';
 import { AppError } from '../lib/errors';
 import { serializeBooking } from '../lib/serializers';
-import { cancelBooking, createBooking, expireBooking, getBookingById, listBookings, payBooking, holdOrGetBooking } from '../services/bookingService';
+import { cancelBooking, createBooking, expireBooking, getBookingById, listBookings, payBooking, holdOrGetBooking, updateBookingCheckoutInfo } from '../services/bookingService';
 
 export const bookingRoutes = Router();
 
@@ -17,6 +17,17 @@ const createBookingSchema = z.object({
 
 const cancelBookingSchema = z.object({
   bookingId: z.string().min(1)
+});
+
+const updateCheckoutSchema = z.object({
+  bookingId: z.string().min(1),
+  contactEmail: z.string().email(),
+  seats: z.array(z.object({
+    seatId: z.string().min(1),
+    passengerName: z.string().min(1),
+    passengerType: z.string().min(1),
+    passengerId: z.string().min(1).optional()
+  })).min(1)
 });
 
 bookingRoutes.get('/', asyncHandler(async (request, response) => {
@@ -104,6 +115,23 @@ bookingRoutes.post('/hold-or-get', asyncHandler(async (request, response) => {
   }
 
   response.json(serializeBooking(fullBooking));
+}));
+
+bookingRoutes.post('/update-checkout', asyncHandler(async (request, response) => {
+  const authUser = getAuthUserFromRequest(request);
+  if (!authUser) {
+    throw new AppError('Vui lòng đăng nhập để tiếp tục.', 401);
+  }
+
+  const payload = updateCheckoutSchema.parse(request.body);
+  const booking = await updateBookingCheckoutInfo({
+    bookingId: payload.bookingId,
+    userId: authUser.id,
+    contactEmail: payload.contactEmail,
+    seats: payload.seats
+  });
+
+  response.json(serializeBooking(booking));
 }));
 
 bookingRoutes.post('/:id/pay', asyncHandler(async (request, response) => {

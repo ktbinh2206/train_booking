@@ -117,7 +117,8 @@ export default function TripsPage() {
           destinationStationId: payload.destinationStationId,
           departureTime: payload.departureTime,
           arrivalTime: payload.arrivalTime,
-          price: payload.price
+          price: payload.price,
+          carriages: payload.carriages
         });
       } else {
         await createAdminTrip(payload);

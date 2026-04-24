@@ -223,6 +223,10 @@ model BookingSeat {
   seatId        String
   seat          TripSeat @relation(fields: [seatId], references: [id], onDelete: Restrict)
 
+  passengerName  String?
+  passengerType  String?
+  passengerId    String?
+
   // 🔥 snapshot giá tại thời điểm đặt
   priceSnapshot Decimal  @db.Decimal(12,2)
 

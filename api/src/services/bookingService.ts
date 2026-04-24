@@ -4,10 +4,11 @@ import { BookingStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { AppError } from '../lib/errors';
 import { addMinutes, parseVnDateInputToUtcRange } from '../lib/dates';
-import { buildInvoiceHtml } from '../lib/communications';
 import { createQrDataUrl } from '../lib/qr';
 import { isBookingUsable, isTripActive } from '../lib/bookingHelpers';
 import { sendNotification } from './notificationService';
+
+const frontendUrl = (process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 
 const { emitSeatUpdates } = require('../lib/sse') as {
   emitSeatUpdates: (tripId: string, payloads: Array<{ seatId: string; status: 'HOLDING' | 'SOLD' | 'AVAILABLE' }>) => void;
@@ -383,9 +384,10 @@ export async function payBooking(bookingId: string) {
     throw new AppError('Booking đã hết hạn giữ chỗ.', 400);
   }
 
-  const seatLabels = booking.bookingSeats.map((item) => item.seat.seatNumber);
-  const ticketPayload = `train-booking:${booking.code}:${booking.trip.id}:${seatLabels.join('|')}`;
-  const qrDataUrl = await createQrDataUrl(ticketPayload);
+  const ticketUrl = `${frontendUrl}/tickets/${booking.id}`;
+  const qrDataUrl = await createQrDataUrl(ticketUrl);
+  console.log('QR URL:', ticketUrl);
+  console.log('QR DATA:', qrDataUrl.slice(0, 50));
   const ticketNumber = `TK-${now.getTime().toString(36).toUpperCase()}-${randomUUID().slice(0, 6).toUpperCase()}`;
   const invoiceNumber = `INV-${now.getTime().toString(36).toUpperCase()}-${randomUUID().slice(0, 6).toUpperCase()}`;
 
@@ -419,24 +421,6 @@ export async function payBooking(bookingId: string) {
       }
     });
 
-    await transaction.emailLog.create({
-      data: {
-        userId: booking.userId,
-        bookingId: booking.id,
-        kind: 'BOOKING_PAID',
-        subject: 'Vé tàu đã được xác nhận',
-        toEmail: booking.contactEmail,
-        html: buildInvoiceHtml({
-          bookingCode: booking.code,
-          ticketNumber,
-          tripLabel: `${booking.trip.origin} - ${booking.trip.destination}`,
-          seatLabels,
-          amount: booking.totalAmount,
-          customerName: booking.user.name
-        })
-      }
-    });
-
     return transaction.booking.findUniqueOrThrow({
       where: { id: booking.id },
       include: {
@@ -449,17 +433,129 @@ export async function payBooking(bookingId: string) {
     });
   });
 
+  // Example usage when booking is PAID: pass ticket to sendNotification to render ticket-style email with clickable QR.
   await sendNotification(prisma, {
     userId: booking.userId,
     bookingId: booking.id,
     type: 'REMINDER',
-    message: `Thanh toán thành công cho booking ${booking.code}.`,
-    toEmail: booking.contactEmail
+    message: 'Thanh toán thành công',
+    ticket: updatedBooking.ticket
+      ? {
+          id: updatedBooking.ticket.id,
+          ticketNumber: updatedBooking.ticket.ticketNumber,
+          qrDataUrl: updatedBooking.ticket.qrDataUrl
+        }
+      : undefined
   });
 
   emitSeatStatusByIds(booking.tripId, booking.bookingSeats.map((item) => item.seatId), 'SOLD');
 
   return updatedBooking;
+}
+
+export async function updateBookingCheckoutInfo(input: {
+  bookingId: string;
+  userId: string;
+  contactEmail: string;
+  seats: Array<{
+    seatId: string;
+    passengerName: string;
+    passengerType: string;
+    passengerId?: string;
+  }>;
+}) {
+  const now = new Date();
+
+  const booking = await prisma.booking.findFirst({
+    where: {
+      id: input.bookingId,
+      userId: input.userId,
+      status: BookingStatus.HOLDING
+    },
+    include: {
+      bookingSeats: true,
+      trip: { include: { train: true } },
+      user: true,
+      payment: true,
+      ticket: true
+    }
+  });
+
+  if (!booking) {
+    throw new AppError('Không tìm thấy booking hợp lệ.', 404);
+  }
+
+  if (!booking.holdExpiresAt || booking.holdExpiresAt.getTime() <= now.getTime()) {
+    throw new AppError('Booking đã hết hạn giữ chỗ.', 400);
+  }
+
+  if (input.seats.length !== booking.bookingSeats.length) {
+    throw new AppError('Danh sách ghế không khớp với booking.', 400);
+  }
+
+  const bookingSeatIds = new Set(booking.bookingSeats.map((item) => item.seatId));
+  const inputSeatIds = new Set(input.seats.map((item) => item.seatId));
+
+  if (bookingSeatIds.size !== inputSeatIds.size) {
+    throw new AppError('Danh sách ghế không khớp với booking.', 400);
+  }
+
+  for (const seatId of bookingSeatIds) {
+    if (!inputSeatIds.has(seatId)) {
+      throw new AppError('Danh sách ghế không khớp với booking.', 400);
+    }
+  }
+
+  const seatById = new Map(input.seats.map((seat) => [seat.seatId, seat]));
+
+  await prisma.$transaction(async (transaction) => {
+    await transaction.booking.update({
+      where: { id: input.bookingId },
+      data: {
+        contactEmail: input.contactEmail
+      }
+    });
+
+    for (const bookingSeat of booking.bookingSeats) {
+      const seatInput = seatById.get(bookingSeat.seatId);
+      if (!seatInput) {
+        throw new AppError('Danh sách ghế không khớp với booking.', 400);
+      }
+
+      await transaction.bookingSeat.update({
+        where: {
+          bookingId_seatId: {
+            bookingId: input.bookingId,
+            seatId: seatInput.seatId
+          }
+        },
+        data: {
+          passengerName: seatInput.passengerName.trim(),
+          passengerType: seatInput.passengerType.trim(),
+          passengerId: seatInput.passengerId?.trim() || null
+        } as any
+      });
+    }
+  });
+
+  await sendNotification(prisma, {
+    userId: input.userId,
+    bookingId: input.bookingId,
+    type: 'REMINDER',
+    message: 'Thông tin đặt vé đã được cập nhật',
+    toEmail: input.contactEmail
+  });
+
+  return prisma.booking.findUniqueOrThrow({
+    where: { id: input.bookingId },
+    include: {
+      trip: { include: { train: true } },
+      user: true,
+      bookingSeats: { include: { seat: true } },
+      payment: true,
+      ticket: true
+    }
+  });
 }
 
 export async function expireBooking(bookingId: string, reason = 'Hết hạn giữ chỗ.') {

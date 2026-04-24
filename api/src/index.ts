@@ -2,6 +2,7 @@ import { prisma } from './lib/prisma';
 import { createApp } from './app';
 import { expireHoldingBookingsForCron } from './services/bookingService';
 import { sendNotification } from './services/notificationService';
+import { runReminderCron } from './services/cronReminder';
 
 const port = Number(process.env.PORT ?? 4000);
 const app = createApp();
@@ -11,6 +12,7 @@ const server = app.listen(port, () => {
 });
 
 const INTERVAL = 30_000; // 30s
+const REMINDER_INTERVAL = 5 * 60_000; // 5 minutes
 
 const cleanupTimer = setInterval(async () => {
   const now = new Date();
@@ -19,7 +21,6 @@ const cleanupTimer = setInterval(async () => {
 
   try {
     const oneMinuteLater = new Date(now.getTime() + 60_000);
-    const oneHourLater = new Date(now.getTime() + 60 * 60_000);
 
     /* ==============================
        1. EXPIRE HOLDING BOOKING
@@ -57,55 +58,6 @@ const cleanupTimer = setInterval(async () => {
         bookingId: booking.id,
         type: 'HOLD_EXPIRE',
         message: `Booking ${booking.code} sẽ hết hạn trong chưa đến 1 phút.`,
-        toEmail: booking.contactEmail
-      });
-    }
-
-    /* ==============================
-      3. REMINDER TRƯỚC 1 GIỜ
-   ============================== */
-    const reminderBookings = await prisma.booking.findMany({
-      where: {
-        status: 'PAID',
-        OR: [
-          {
-            trip: {
-              delayedDepartureTime: {
-                gt: now,
-                lte: oneHourLater
-              }
-            }
-          },
-          {
-            trip: {
-              delayedDepartureTime: null,
-              departureTime: {
-                gt: now,
-                lte: oneHourLater
-              }
-            }
-          }
-        ]
-      },
-      include: {
-        trip: true,
-        notifications: {
-          where: { type: 'REMINDER' }
-        }
-      }
-    });
-
-    for (const booking of reminderBookings) {
-      if (booking.notifications.length > 0) continue;
-
-      const departure =
-        booking.trip.delayedDepartureTime ?? booking.trip.departureTime;
-
-      await sendNotification(prisma, {
-        userId: booking.userId,
-        bookingId: booking.id,
-        type: 'REMINDER',
-        message: `Nhắc chuyến: tàu ${booking.trip.origin} - ${booking.trip.destination} sẽ khởi hành lúc ${departure.toISOString()}.`,
         toEmail: booking.contactEmail
       });
     }
@@ -190,8 +142,23 @@ const cleanupTimer = setInterval(async () => {
 
 cleanupTimer.unref();
 
+const reminderTimer = setInterval(async () => {
+  const now = new Date();
+  try {
+    const summary = await runReminderCron(now);
+    if (summary.sentCount > 0) {
+      console.log(`[CRON] Reminder sent=${summary.sentCount} scanned=${summary.scanned} at ${now.toISOString()}`);
+    }
+  } catch (error) {
+    console.error('REMINDER CRON ERROR:', error);
+  }
+}, REMINDER_INTERVAL);
+
+reminderTimer.unref();
+
 process.on('SIGINT', async () => {
   clearInterval(cleanupTimer);
+  clearInterval(reminderTimer);
   server.close();
   await prisma.$disconnect();
   process.exit(0);
@@ -199,6 +166,7 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
   clearInterval(cleanupTimer);
+  clearInterval(reminderTimer);
   server.close();
   await prisma.$disconnect();
   process.exit(0);

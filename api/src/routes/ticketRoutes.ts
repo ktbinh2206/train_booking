@@ -44,7 +44,7 @@ ticketRoutes.get('/:bookingId', asyncHandler(async (request, response) => {
       code: ticketRecord.booking.code,
       status: ticketRecord.booking.status,
       totalAmount: ticketRecord.booking.totalAmount.toNumber(),
-      seats: ticketRecord.booking.bookingSeats.map((bookingSeat: { seat: { code: string } }) => bookingSeat.seat.code),
+      seats: ticketRecord.booking.bookingSeats.map((bookingSeat: { seat: { seatNumber: string } }) => bookingSeat.seat.seatNumber),
       trip: {
         origin: ticketRecord.booking.trip.origin,
         destination: ticketRecord.booking.trip.destination,

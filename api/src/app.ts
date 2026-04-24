@@ -6,6 +6,7 @@ import { adminRoutes } from './routes/adminRoutes';
 import { authRoutes } from './routes/authRoutes';
 import { bookingRoutes } from './routes/bookingRoutes';
 import { errorHandler } from './middleware/errorHandler';
+import { createQrDataUrl } from './lib/qr';
 import { metaRoutes } from './routes/metaRoutes';
 import { notificationRoutes } from './routes/notificationRoutes';
 import { sseRoutes } from './routes/sseRoutes';
@@ -29,6 +30,18 @@ export function createApp() {
 
   app.get('/health', (_request, response) => {
     response.json({ status: 'ok' });
+  });
+
+  app.get('/debug/qr', async (request, response, next) => {
+    try {
+      const value = typeof request.query.value === 'string' && request.query.value.trim().length > 0
+        ? request.query.value
+        : 'https://google.com';
+      const qrDataUrl = await createQrDataUrl(value);
+      response.json({ value, qrDataUrl, prefix: qrDataUrl.slice(0, 40), length: qrDataUrl.length });
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.use('/api/meta', metaRoutes);
