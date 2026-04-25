@@ -21,6 +21,18 @@ export function formatDateTimeVn(value: string | number | Date, options?: Intl.D
   return new Date(value).toLocaleString('vi-VN', options)
 }
 
+export function formatDateTimeVnShort(value: string | number | Date) {
+  return new Intl.DateTimeFormat('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour12: false
+  }).format(new Date(value)).replace(',', '')
+}
+
 export function toLocalYmd(value: Date = new Date()) {
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Ho_Chi_Minh',

@@ -1,16 +1,26 @@
 import { NotificationType, Prisma } from '@prisma/client';
+import { emitNotification } from '../lib/sse';
 import { prisma } from '../lib/prisma';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { sendEmail } from './emailService';
 import { buildTicketEmailHtml } from './emailTemplates';
+import { buildNotificationMessage, buildNotificationTitle, normalizeNotificationMessageType } from './notificationMessage';
 
-export type NotificationEventType = 'REMINDER' | 'DELAY' | 'CANCEL' | 'HOLD_EXPIRE';
+export type NotificationEventType =
+  | 'REMINDER'
+  | 'DELAY'
+  | 'CANCEL'
+  | 'HOLD_EXPIRE'
+  | 'REMINDER_BEFORE_DEPARTURE'
+  | 'PAYMENT_SUCCESS'
+  | 'CANCELLED';
 type NotificationDbClient = typeof prisma | Prisma.TransactionClient;
 
 function toDbNotificationType(type: NotificationEventType): NotificationType {
-  if (type === 'REMINDER') return NotificationType.REMINDER;
+  if (type === 'REMINDER' || type === 'PAYMENT_SUCCESS') return NotificationType.REMINDER;
+  if (type === 'REMINDER_BEFORE_DEPARTURE') return 'REMINDER_BEFORE_DEPARTURE' as any;
   if (type === 'DELAY') return NotificationType.DELAY;
-  if (type === 'CANCEL') return NotificationType.CANCEL;
+  if (type === 'CANCEL' || type === 'CANCELLED') return NotificationType.CANCEL;
   return NotificationType.HOLD_EXPIRE;
 }
 
@@ -24,7 +34,7 @@ function buildBookingStatusSubject(status: 'HOLDING' | 'PAID' | 'CANCELLED' | 'R
 export async function sendNotification(db: NotificationDbClient, input: {
   userId: string;
   type: NotificationEventType;
-  message: string;
+  message?: string;
   bookingId?: string;
   toEmail?: string;
   toPhone?: string;
@@ -36,29 +46,56 @@ export async function sendNotification(db: NotificationDbClient, input: {
 }) {
   const bookingForEmail = input.bookingId
     ? await db.booking.findUnique({
-        where: { id: input.bookingId },
-        select: {
-          id: true,
-          code: true,
-          status: true,
-          contactEmail: true,
-          totalAmount: true,
-          seatCount: true,
-          trip: {
-            select: {
-              origin: true,
-              destination: true,
-              departureTime: true,
-              train: {
-                select: {
-                  name: true
-                }
+      where: { id: input.bookingId },
+      select: {
+        id: true,
+        code: true,
+        status: true,
+        holdExpiresAt: true,
+        contactEmail: true,
+        totalAmount: true,
+        seatCount: true,
+        bookingSeats: {
+          include: {
+            seat: {
+              select: {
+                seatNumber: true
+              }
+            }
+          }
+        },
+        trip: {
+          select: {
+            origin: true,
+            destination: true,
+            departureTime: true,
+            train: {
+              select: {
+                name: true
               }
             }
           }
         }
-      })
+      }
+    })
     : null;
+
+  const messageFromHelper = bookingForEmail
+    ? buildNotificationMessage(normalizeNotificationMessageType(input.type), {
+      code: bookingForEmail.code,
+      holdExpiresAt: bookingForEmail.holdExpiresAt,
+      seatCodes: bookingForEmail.bookingSeats
+        .map((item) => item.seat?.seatNumber)
+        .filter((code): code is string => Boolean(code)),
+      trip: {
+        origin: bookingForEmail.trip.origin,
+        destination: bookingForEmail.trip.destination,
+        departureTime: bookingForEmail.trip.departureTime
+      }
+    })
+    : undefined;
+
+  const finalMessage = input.message ?? messageFromHelper ?? 'Thông báo';
 
   const resolvedBookingEmail = bookingForEmail?.contactEmail ?? input.toEmail;
 
@@ -66,10 +103,21 @@ export async function sendNotification(db: NotificationDbClient, input: {
     data: {
       userId: input.userId,
       type: toDbNotificationType(input.type),
-      message: input.message,
+      message: finalMessage,
       ...(input.bookingId && { bookingId: input.bookingId })
     }
   });
+
+  emitNotification(input.userId, {
+    id: notification.id,
+    type: notification.type,
+    title: buildNotificationTitle(notification.type),
+    message: notification.message,
+    createdAt: notification.createdAt.toISOString(),
+    bookingId: notification.bookingId,
+    read: notification.readAt !== null
+  });
+
 
   if (resolvedBookingEmail) {
     const canSendSmtp = db === prisma;
@@ -137,7 +185,7 @@ export async function sendNotification(db: NotificationDbClient, input: {
       }
     } else {
       const subject = `[${input.type}] Train booking notification`;
-      const html = `<p>${input.message}</p>`;
+      const html = `<p>${finalMessage}</p>`;
 
       if (canSendSmtp) {
         await sendEmail({
@@ -145,7 +193,7 @@ export async function sendNotification(db: NotificationDbClient, input: {
           toEmail: resolvedBookingEmail,
           subject,
           html,
-          text: input.message
+          text: finalMessage
         });
       } else {
         await db.emailLog.create({
@@ -164,7 +212,7 @@ export async function sendNotification(db: NotificationDbClient, input: {
 
   // SMS is mocked by console log for now.
   if (input.toPhone) {
-    console.log(`[MockSMS] to=${input.toPhone} type=${input.type} message=${input.message}`);
+    console.log(`[MockSMS] to=${input.toPhone} type=${input.type} message=${finalMessage}`);
   }
 
   return notification;

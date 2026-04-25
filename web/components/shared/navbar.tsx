@@ -6,6 +6,7 @@ import { Menu, X } from 'lucide-react';
 import { useState } from 'react';
 import { VN } from '@/lib/translations';
 import { useAuth } from '@/components/auth/auth-provider';
+import { NotificationBell } from '@/components/shared/notification-bell';
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -53,6 +54,7 @@ export function Navbar() {
 
           {/* Action Buttons */}
           <div className="hidden sm:flex items-center gap-3">
+            {user && <NotificationBell />}
             {loading ? (
               <span className="text-sm text-gray-500">Đang tải...</span>
             ) : user ? (

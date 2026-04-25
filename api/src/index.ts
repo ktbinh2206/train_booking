@@ -1,6 +1,7 @@
 import { prisma } from './lib/prisma';
 import { createApp } from './app';
 import { expireHoldingBookingsForCron } from './services/bookingService';
+import { buildNotificationMessage } from './services/notificationMessage';
 import { sendNotification } from './services/notificationService';
 import { runReminderCron } from './services/cronReminder';
 
@@ -57,7 +58,11 @@ const cleanupTimer = setInterval(async () => {
         userId: booking.userId,
         bookingId: booking.id,
         type: 'HOLD_EXPIRE',
-        message: `Booking ${booking.code} sẽ hết hạn trong chưa đến 1 phút.`,
+        message: buildNotificationMessage('HOLD_EXPIRE', {
+          code: booking.code,
+          holdExpiresAt: oneMinuteLater,
+          trip: null
+        }),
         toEmail: booking.contactEmail
       });
     }
@@ -89,7 +94,14 @@ const cleanupTimer = setInterval(async () => {
           userId: booking.userId,
           bookingId: booking.id,
           type: 'DELAY',
-          message: `Chuyến ${trip.origin} - ${trip.destination} bị delay ${trip.delayMinutes} phút.`,
+          message: buildNotificationMessage('DELAY', {
+            code: booking.code,
+            trip: {
+              origin: trip.origin,
+              destination: trip.destination,
+              departureTime: trip.departureTime
+            }
+          }),
           toEmail: booking.contactEmail
         });
       }

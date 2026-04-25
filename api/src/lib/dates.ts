@@ -20,6 +20,20 @@ export function formatIsoDateTime(date: Date): string {
   return date.toISOString();
 }
 
+export function formatDateTimeVnShort(value: Date): string {
+  const formatter = new Intl.DateTimeFormat('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour12: false
+  });
+
+  return formatter.format(value).replace(',', '');
+}
+
 export function toDateYmdInVn(date: Date): string {
   const shifted = new Date(date.getTime() + VN_OFFSET_MINUTES * 60_000);
   const year = shifted.getUTCFullYear();

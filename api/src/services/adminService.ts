@@ -4,6 +4,7 @@ import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { AppError } from '../lib/errors';
 import { recordEmail } from '../lib/communications';
+import { buildNotificationMessage } from './notificationMessage';
 import { sendNotification } from './notificationService';
 
 type ReportRangeInput = {
@@ -164,7 +165,14 @@ export async function setTripStatus(tripId: string, input: { status: 'ON_TIME' |
           userId: booking.userId,
           bookingId: booking.id,
           type: 'DELAY',
-          message: `Chuyến ${trip.origin} - ${trip.destination} bị delay ${updatedTrip.delayMinutes} phút.`
+          message: buildNotificationMessage('DELAY', {
+            code: booking.code,
+            trip: {
+              origin: trip.origin,
+              destination: trip.destination,
+              departureTime: trip.departureTime
+            }
+          })
         });
 
         await recordEmail({
@@ -212,8 +220,15 @@ export async function setTripStatus(tripId: string, input: { status: 'ON_TIME' |
         await sendNotification(prisma, {
           userId: booking.userId,
           bookingId: booking.id,
-          type: 'CANCEL',
-          message: `Chuyến ${trip.origin} - ${trip.destination} bị hủy. Vé đã được hoàn tiền.`
+          type: 'CANCELLED',
+          message: buildNotificationMessage('CANCELLED', {
+            code: booking.code,
+            trip: {
+              origin: trip.origin,
+              destination: trip.destination,
+              departureTime: trip.departureTime
+            }
+          })
         });
 
         await recordEmail({
@@ -239,8 +254,15 @@ export async function setTripStatus(tripId: string, input: { status: 'ON_TIME' |
         await sendNotification(prisma, {
           userId: booking.userId,
           bookingId: booking.id,
-          type: 'CANCEL',
-          message: `Chuyến ${trip.origin} - ${trip.destination} đã bị hủy.`
+          type: 'CANCELLED',
+          message: buildNotificationMessage('CANCELLED', {
+            code: booking.code,
+            trip: {
+              origin: trip.origin,
+              destination: trip.destination,
+              departureTime: trip.departureTime
+            }
+          })
         });
       }
     }

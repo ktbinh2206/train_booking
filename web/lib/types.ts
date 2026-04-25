@@ -89,7 +89,8 @@ export interface User {
 export interface Notification {
   id: string;
   userId: string;
-  type: 'booking' | 'payment' | 'trip' | 'delay' | 'refund' | 'general';
+  bookingId?: string | null;
+  type: string;
   title: string;
   message: string;
   read: boolean;

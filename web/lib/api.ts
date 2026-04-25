@@ -177,10 +177,21 @@ type ApiUserMe = {
 type ApiNotification = {
   id: string;
   userId: string;
+  bookingId?: string | null;
   type: string;
+  title: string;
   message: string;
+  read: boolean;
   readAt: string | null;
   createdAt: string;
+};
+
+type ApiNotificationListResponse = {
+  data: ApiNotification[];
+  page: number;
+  total: number;
+  totalPages: number;
+  unreadCount: number;
 };
 
 function formatTime(inputIso: string) {
@@ -532,28 +543,40 @@ export async function getCurrentUser(_userId?: string): Promise<User> {
   };
 }
 
-function mapNotificationType(type: string): Notification['type'] {
-  if (type === 'HOLD_EXPIRE') return 'booking';
-  if (type === 'REMINDER') return 'trip';
-  if (type === 'DELAY') return 'delay';
-  if (type === 'CANCEL') return 'refund';
-  return 'general';
-}
-
-export async function listNotifications(userId?: string): Promise<Notification[]> {
-  const data = await apiRequest<ApiNotification[]>('/api/notifications', {
-    params: { userId: userId || undefined }
-  });
-
-  return data.map((item) => ({
+function mapNotification(item: ApiNotification): Notification {
+  return {
     id: item.id,
     userId: item.userId,
-    type: mapNotificationType(item.type),
-    title: item.type.replaceAll('_', ' '),
+    bookingId: item.bookingId ?? null,
+    type: item.type,
+    title: item.title,
     message: item.message,
-    read: item.readAt !== null,
-    createdAt: item.createdAt
-  }));
+    read: item.read,
+    createdAt: item.createdAt,
+    actionUrl: item.bookingId ? `/tickets/${item.bookingId}` : undefined
+  };
+}
+
+export async function listNotifications(params?: {
+  userId?: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  const data = await apiRequest<ApiNotificationListResponse>('/api/notifications', {
+    params: {
+      userId: params?.userId || undefined,
+      page: params?.page ?? 1,
+      pageSize: params?.pageSize ?? 10
+    }
+  });
+
+  return {
+    data: data.data.map((item) => mapNotification(item)),
+    page: data.page,
+    total: data.total,
+    totalPages: data.totalPages,
+    unreadCount: data.unreadCount
+  };
 }
 
 export async function markNotificationRead(notificationId: string) {
@@ -562,8 +585,18 @@ export async function markNotificationRead(notificationId: string) {
   });
 }
 
+export async function markAllNotificationsRead() {
+  return apiRequest<{ success: boolean; updatedCount: number; unreadCount: number }>('/api/notifications/read-all', {
+    method: 'POST'
+  });
+}
+
+export async function getUnreadNotificationCount() {
+  return apiRequest<{ unreadCount: number }>('/api/notifications/unread-count');
+}
+
 export async function deleteNotification(notificationId: string) {
-  return apiRequest(`/api/notifications/${notificationId}`, {
+  return apiRequest<{ success: boolean; unreadCount: number }>(`/api/notifications/${notificationId}`, {
     method: 'DELETE'
   });
 }

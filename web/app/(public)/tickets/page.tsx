@@ -21,7 +21,7 @@ function mapBookingStatusToUi(status: string) {
 export default function TicketsPage() {
   const { user, loading: authLoading } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('confirmed');
   const [loading, setLoading] = useState(true);
   const [processingBookingId, setProcessingBookingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

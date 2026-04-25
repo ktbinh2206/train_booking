@@ -7,6 +7,7 @@ import { addMinutes, parseVnDateInputToUtcRange } from '../lib/dates';
 import { createQrDataUrl } from '../lib/qr';
 import { isBookingUsable, isTripActive } from '../lib/bookingHelpers';
 import { sendNotification } from './notificationService';
+import { buildNotificationMessage } from './notificationMessage';
 
 const frontendUrl = (process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 
@@ -170,7 +171,15 @@ export async function createBooking(input: {
     userId: input.userId,
     bookingId: booking.id,
     type: 'HOLD_EXPIRE',
-    message: `Đặt chỗ thành công ${booking.code}. Hết hạn lúc ${holdExpiresAt.toISOString()}.`,
+    message: buildNotificationMessage('HOLD_EXPIRE', {
+      code: booking.code,
+      holdExpiresAt,
+      trip: {
+        origin: booking.trip.origin,
+        destination: booking.trip.destination,
+        departureTime: booking.trip.departureTime
+      }
+    }),
     toEmail: input.contactEmail
   });
 
@@ -340,7 +349,15 @@ export async function holdOrGetBooking(input: {
       userId: input.userId,
       bookingId: booking.id,
       type: 'HOLD_EXPIRE',
-      message: `Đặt chỗ thành công ${booking.code}. Hết hạn lúc ${holdExpiresAt.toISOString()}.`,
+      message: buildNotificationMessage('HOLD_EXPIRE', {
+        code: booking.code,
+        holdExpiresAt,
+        trip: {
+          origin: trip.origin,
+          destination: trip.destination,
+          departureTime: trip.departureTime
+        }
+      }),
       toEmail: input.contactEmail
     });
 
@@ -437,8 +454,18 @@ export async function payBooking(bookingId: string) {
   await sendNotification(prisma, {
     userId: booking.userId,
     bookingId: booking.id,
-    type: 'REMINDER',
-    message: 'Thanh toán thành công',
+    type: 'PAYMENT_SUCCESS',
+    message: buildNotificationMessage('PAYMENT_SUCCESS', {
+      code: booking.code,
+      seatCodes: updatedBooking.bookingSeats
+        .map((item) => item.seat?.seatNumber)
+        .filter((code): code is string => Boolean(code)),
+      trip: {
+        origin: booking.trip.origin,
+        destination: booking.trip.destination,
+        departureTime: booking.trip.departureTime
+      }
+    }),
     ticket: updatedBooking.ticket
       ? {
           id: updatedBooking.ticket.id,
@@ -564,6 +591,11 @@ export async function expireBooking(bookingId: string, reason = 'Hết hạn gi�
     return null;
   }
 
+  const trip = await prisma.trip.findUnique({
+    where: { id: booking.tripId },
+    select: { origin: true, destination: true, departureTime: true }
+  });
+
   const expiredBooking = await prisma.booking.update({
     where: { id: bookingId },
     data: {
@@ -577,7 +609,19 @@ export async function expireBooking(bookingId: string, reason = 'Hết hạn gi�
     userId: booking.userId,
     bookingId: booking.id,
     type: 'HOLD_EXPIRE',
-    message: reason,
+    message: reason !== 'Hết hạn giữ chỗ.'
+      ? reason
+      : buildNotificationMessage('HOLD_EXPIRE', {
+          code: booking.code,
+          holdExpiresAt: booking.holdExpiresAt,
+          trip: trip
+            ? {
+                origin: trip.origin,
+                destination: trip.destination,
+                departureTime: trip.departureTime
+              }
+            : null
+        }),
     toEmail: booking.contactEmail
   });
 
@@ -757,13 +801,20 @@ export async function cancelBooking(bookingId: string, userId: string): Promise<
     });
   });
 
-  await sendNotification(prisma, {
-    userId: booking.userId,
-    bookingId: booking.id,
-    type: 'CANCEL',
-    message: `Booking ${booking.code} đã được hủy. Hoàn tiền: ${refundAmount} VND`,
-    toEmail: booking.contactEmail
-  });
+  // await sendNotification(prisma, {
+  //   userId: booking.userId,
+  //   bookingId: booking.id,
+  //   type: 'CANCELLED',
+  //   message: buildNotificationMessage('CANCELLED', {
+  //     code: booking.code,
+  //     trip: {
+  //       origin: booking.trip.origin,
+  //       destination: booking.trip.destination,
+  //       departureTime: booking.trip.departureTime
+  //     }
+  //   }),
+  //   toEmail: booking.contactEmail
+  // });
 
   emitSeatStatusByIds(booking.tripId, booking.bookingSeats.map((item) => item.seatId), 'AVAILABLE');
 

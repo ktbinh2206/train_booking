@@ -1,9 +1,12 @@
 import { prisma } from '../lib/prisma';
+import { emitNotification } from '../lib/sse';
 import { addMinutes } from '../lib/dates';
 import { renderReminderEmail } from './emailTemplates';
 import { sendEmail } from './emailService';
+import { buildNotificationMessage, buildNotificationTitle } from './notificationMessage';
 
 export async function runReminderCron(now = new Date()) {
+  const from = addMinutes(now, 59);
   const to = addMinutes(now, 60);
   const reminderType = 'REMINDER_BEFORE_DEPARTURE' as any;
 
@@ -12,6 +15,7 @@ export async function runReminderCron(now = new Date()) {
       status: 'PAID',
       trip: {
         departureTime: {
+          gte: from,
           lte: to
         }
       }
@@ -21,16 +25,16 @@ export async function runReminderCron(now = new Date()) {
         include: {
           train: true
         }
-        },
-        bookingSeats: {
-          include: {
-            seat: true
-          }
+      },
+      bookingSeats: {
+        include: {
+          seat: true
+        }
       }
     }
   });
 
-  console.log(`Found ${bookings.length} bookings departing between ${now.toISOString()} and ${to.toISOString()}`);
+  console.log(`Found ${bookings.length} bookings departing between ${from.toISOString()} and ${to.toISOString()}`);
 
   let sentCount = 0;
 
@@ -83,13 +87,30 @@ export async function runReminderCron(now = new Date()) {
         continue;
       }
 
-      await prisma.notification.create({
-        data: {
-          userId: booking.userId,
-          bookingId: booking.id,
-          type: reminderType,
-          message: 'Nhắc chuyến sắp khởi hành'
-        }
+    const notification = await prisma.notification.create({
+      data: {
+        userId: booking.userId,
+        bookingId: booking.id,
+        type: reminderType,
+        message: buildNotificationMessage('REMINDER_BEFORE_DEPARTURE', {
+          code: booking.code,
+          trip: {
+            origin: booking.trip.origin,
+            destination: booking.trip.destination,
+            departureTime: booking.trip.departureTime
+          }
+        })
+      }
+    });
+
+    emitNotification(booking.userId, {
+      id: notification.id,
+      type: notification.type,
+      title: buildNotificationTitle(notification.type),
+      message: notification.message,
+      createdAt: notification.createdAt.toISOString(),
+      bookingId: notification.bookingId,
+      read: false
     });
 
     sentCount += 1;
