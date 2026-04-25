@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { formatCurrencyVND } from '@/lib/utils';
+import { HeroVideo } from '@/components/shared/herovideo';
+import { PromoBanner } from '@/components/shared/promote-banner';
 
 export const metadata = {
   title: 'RailBooking - Đặt vé tàu hỏa trực tuyến',
@@ -22,25 +24,38 @@ export default function Home() {
   return (
     <>
       {/* Hero Section */}
-      <section className="bg-gradient-to-br from-blue-50 to-white pt-12 md:pt-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4 text-balance">
-              Du lịch thông minh, Đặt nhanh
-            </h1>
-            <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
-              Đặt vé tàu hỏa của bạn trong vài giây. So sánh các chuyến tàu, kiểm tra tính khả dụng và hoàn thành đặt vé của bạn chỉ trong vài click.
-            </p>
-            <Link href="/search">
-              <Button size="lg" className="bg-blue-600 text-white hover:bg-blue-700 font-semibold hover:shadow-xl transition cursor-pointer">
-                Bắt đầu đặt vé
-              </Button>
-            </Link>
-          </div>
+      {/* HERO VIDEO */}
+      <section className="relative h-[70vh] flex items-center justify-center overflow-hidden">
+        {/* VIDEO */}
+        <HeroVideo />
 
+        {/* OVERLAY */}
+        <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/40 to-black/20" />
+
+        {/* CONTENT */}
+        <div className="relative z-10 text-center text-white px-4 max-w-3xl">
+          <h1 className="text-4xl md:text-6xl font-bold mb-4">
+            Khám phá Việt Nam bằng đường sắt
+          </h1>
+          <p className="text-lg md:text-xl mb-6 text-gray-200">
+            Đặt vé nhanh chóng, chọn ghế realtime, nhận vé điện tử ngay lập tức
+          </p>
+
+          <Link href="/search">
+            <Button
+              size="lg"
+              className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-6 text-lg font-semibold shadow-xl"
+            >
+              Đặt vé ngay
+            </Button>
+          </Link>
         </div>
       </section>
-
+      <section className="py-10 bg-gray-50">
+        <div className="w-[80vw] mx-auto px-4">
+          <PromoBanner />
+        </div>
+      </section>F
       {/* CTA Section */}
       <section className="pb-12 md:pb-20 bg-blue-100">
         <div className="max-w-5xl mx-auto">
@@ -149,8 +164,8 @@ export default function Home() {
                 </div>
 
                 {index < 3 && (
-                  <div className="hidden md:flex absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2">
-                    <ArrowRight className="w-6 h-6 text-gray-300" />
+                  <div className="hidden md:flex absolute -right-6 top-1/2 -translate-y-1/2">
+                    <ArrowRight className="w-6 h-6 text-gray-500" />
                   </div>
                 )}
               </div>

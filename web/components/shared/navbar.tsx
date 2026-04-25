@@ -18,10 +18,7 @@ export function Navbar() {
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-lg">🚂</span>
-            </div>
-            <span className="hidden sm:inline font-bold text-lg text-gray-900">{VN.nav.logo}</span>
+            <span className="hidden sm:inline font-bold text-2xl text-gray-900">{VN.nav.logo}</span>
           </Link>
 
           {/* Desktop Menu */}
