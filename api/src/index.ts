@@ -11,8 +11,8 @@ const server = app.listen(port, () => {
   console.log(`API running at http://localhost:${port}`);
 });
 
-const INTERVAL = 30_000; // 30s
-const REMINDER_INTERVAL = 5 * 60_000; // 5 minutes
+const INTERVAL = 10_000; // 10s
+const REMINDER_INTERVAL = 10_000; // 10 seconds
 
 const cleanupTimer = setInterval(async () => {
   const now = new Date();

@@ -4,7 +4,6 @@ import { renderReminderEmail } from './emailTemplates';
 import { sendEmail } from './emailService';
 
 export async function runReminderCron(now = new Date()) {
-  const from = addMinutes(now, 59);
   const to = addMinutes(now, 60);
   const reminderType = 'REMINDER_BEFORE_DEPARTURE' as any;
 
@@ -13,7 +12,6 @@ export async function runReminderCron(now = new Date()) {
       status: 'PAID',
       trip: {
         departureTime: {
-          gte: from,
           lte: to
         }
       }
@@ -31,6 +29,8 @@ export async function runReminderCron(now = new Date()) {
       }
     }
   });
+
+  console.log(`Found ${bookings.length} bookings departing between ${now.toISOString()} and ${to.toISOString()}`);
 
   let sentCount = 0;
 
