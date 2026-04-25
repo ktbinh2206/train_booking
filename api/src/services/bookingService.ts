@@ -538,13 +538,13 @@ export async function updateBookingCheckoutInfo(input: {
     }
   });
 
-  await sendNotification(prisma, {
-    userId: input.userId,
-    bookingId: input.bookingId,
-    type: 'REMINDER',
-    message: 'Thông tin đặt vé đã được cập nhật',
-    toEmail: input.contactEmail
-  });
+  // await sendNotification(prisma, {
+  //   userId: input.userId,
+  //   bookingId: input.bookingId,
+  //   type: 'REMINDER',
+  //   message: 'Thông tin đặt vé đã được cập nhật',
+  //   toEmail: input.contactEmail
+  // });
 
   return prisma.booking.findUniqueOrThrow({
     where: { id: input.bookingId },

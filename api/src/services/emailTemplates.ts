@@ -320,3 +320,55 @@ export function buildReminderEmail(input: {
   </div>
   `;
 }
+
+export function renderReminderEmail(input: {
+  booking: {
+    id: string;
+    code: string;
+    contactEmail: string;
+    contactPhone?: string | null;
+    seatCodes: string[];
+    trip: {
+      origin: string;
+      destination: string;
+      departureTime: Date;
+      trainName?: string | null;
+    };
+  };
+  ticketUrl: string;
+}) {
+  const seatCodesLabel = input.booking.seatCodes.length > 0
+    ? input.booking.seatCodes.join(', ')
+    : '-';
+
+  return `
+  <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;border:1px solid #eee;border-radius:8px;overflow:hidden;background:#ffffff;color:#0f172a">
+    <div style="background:#2563eb;color:#ffffff;padding:16px">
+      <h2 style="margin:0 0 6px;font-size:22px">Nhắc chuyến sắp khởi hành</h2>
+      <p style="margin:0;font-size:14px">${escapeHtml(input.booking.trip.origin)} → ${escapeHtml(input.booking.trip.destination)}</p>
+    </div>
+
+    <div style="padding:16px">
+      <h3 style="margin:0 0 10px;font-size:18px">Thông tin đặt vé</h3>
+      <p style="margin:0 0 8px"><b>Mã đặt vé:</b> ${escapeHtml(input.booking.code)}</p>
+      <p style="margin:0 0 8px"><b>Tàu:</b> ${escapeHtml(input.booking.trip.trainName ?? '-')}</p>
+      <p style="margin:0 0 8px"><b>Thời gian:</b> ${escapeHtml(formatVnDateTime(input.booking.trip.departureTime))}</p>
+      <p style="margin:0 0 14px"><b>Ghế:</b> ${escapeHtml(seatCodesLabel)}</p>
+
+      <h3 style="margin:0 0 10px;font-size:18px">Thông tin liên hệ</h3>
+      <p style="margin:0 0 8px"><b>Email:</b> ${escapeHtml(input.booking.contactEmail)}</p>
+      <p style="margin:0 0 14px"><b>SĐT:</b> ${escapeHtml(input.booking.contactPhone ?? '-')}</p>
+
+      <div style="margin-top:20px;text-align:center">
+        <a href="${escapeHtml(input.ticketUrl)}" style="display:inline-block;padding:12px 20px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700">
+          Xem vé điện tử
+        </a>
+      </div>
+
+      <p style="margin-top:20px;font-size:12px;color:#555555">
+        Vui lòng có mặt tại ga trước ít nhất 30 phút và mang theo giấy tờ tùy thân.
+      </p>
+    </div>
+  </div>
+  `;
+}

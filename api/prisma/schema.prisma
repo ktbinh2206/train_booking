@@ -48,6 +48,7 @@ enum CarriageType {
 
 enum NotificationType {
   REMINDER
+  REMINDER_BEFORE_DEPARTURE
   DELAY
   CANCEL
   HOLD_EXPIRE
@@ -286,6 +287,7 @@ model Notification {
   createdAt DateTime          @default(now())
 
   @@index([userId, createdAt])
+  @@unique([bookingId, type])
 }
 
 model EmailLog {

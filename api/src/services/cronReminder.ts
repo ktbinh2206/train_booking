@@ -1,18 +1,20 @@
 import { prisma } from '../lib/prisma';
-import { sendNotification } from './notificationService';
-import { buildReminderEmail } from './emailTemplates';
+import { addMinutes } from '../lib/dates';
+import { renderReminderEmail } from './emailTemplates';
 import { sendEmail } from './emailService';
 
 export async function runReminderCron(now = new Date()) {
-  const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60_000);
+  const from = addMinutes(now, 59);
+  const to = addMinutes(now, 60);
+  const reminderType = 'REMINDER_BEFORE_DEPARTURE' as any;
 
   const bookings = await prisma.booking.findMany({
     where: {
       status: 'PAID',
       trip: {
         departureTime: {
-          gte: now,
-          lte: twoHoursLater
+          gte: from,
+          lte: to
         }
       }
     },
@@ -21,14 +23,11 @@ export async function runReminderCron(now = new Date()) {
         include: {
           train: true
         }
-      },
-      emailLogs: {
-        where: {
-          kind: 'TRIP_REMINDER'
         },
-        select: {
-          id: true
-        }
+        bookingSeats: {
+          include: {
+            seat: true
+          }
       }
     }
   });
@@ -36,30 +35,61 @@ export async function runReminderCron(now = new Date()) {
   let sentCount = 0;
 
   for (const booking of bookings) {
-    if (booking.emailLogs.length > 0) {
+      const existed = await prisma.notification.findFirst({
+        where: {
+          bookingId: booking.id,
+          type: reminderType
+        },
+        select: {
+          id: true
+        }
+      });
+
+      if (existed) {
       continue;
     }
 
-    const html = buildReminderEmail({
-      bookingCode: booking.code,
-      trainName: booking.trip.train.name,
-      origin: booking.trip.origin,
-      destination: booking.trip.destination,
-      departureTime: booking.trip.departureTime
-    });
+      const seatCodes = booking.bookingSeats
+        .map((item) => item.seat?.seatNumber)
+        .filter((code): code is string => Boolean(code));
 
-    await sendEmail({
-      bookingId: booking.id,
-      toEmail: booking.contactEmail,
-      subject: 'Sap den gio khoi hanh',
-      html
-    });
+      const ticketUrl = `${(process.env.FRONTEND_URL ?? process.env.APP_URL ?? 'http://localhost:3000').replace(/\/$/, '')}/tickets/${booking.id}`;
+      const html = renderReminderEmail({
+        booking: {
+          id: booking.id,
+          code: booking.code,
+          contactEmail: booking.contactEmail,
+          contactPhone: null,
+          seatCodes,
+          trip: {
+            origin: booking.trip.origin,
+            destination: booking.trip.destination,
+            departureTime: booking.trip.departureTime,
+            trainName: booking.trip.train.name
+          }
+        },
+        ticketUrl
+      });
 
-    await sendNotification(prisma, {
-      userId: booking.userId,
-      bookingId: booking.id,
-      type: 'REMINDER',
-      message: 'Sap den gio khoi hanh'
+      const sendResult = await sendEmail({
+        bookingId: booking.id,
+        toEmail: booking.contactEmail,
+        subject: `Nhắc chuyến: ${booking.code}`,
+        html,
+        text: `Nhắc chuyến sắp khởi hành\nMã đặt vé: ${booking.code}\nTuyến: ${booking.trip.origin} -> ${booking.trip.destination}\nGiờ khởi hành: ${booking.trip.departureTime.toISOString()}\nXem vé: ${ticketUrl}`
+      });
+
+      if (!sendResult) {
+        continue;
+      }
+
+      await prisma.notification.create({
+        data: {
+          userId: booking.userId,
+          bookingId: booking.id,
+          type: reminderType,
+          message: 'Nhắc chuyến sắp khởi hành'
+        }
     });
 
     sentCount += 1;

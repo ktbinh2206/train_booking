@@ -1,300 +1,299 @@
-Backend: Node.js + Express + Prisma + PostgreSQL
-Frontend: Next.js (App Router)
-Database: PostgreSQL via Docker
-🚀 Project Setup Instructions
-1. Start Database (Docker)
-Install Docker Desktop
-Navigate to the folder containing docker-compose.yml
-Run:
+# Train Booking System
+
+Hệ thống đặt vé tàu full-flow với Next.js App Router + Express + Prisma + PostgreSQL.
+
+---
+
+## Tổng quan
+
+Hệ thống hỗ trợ toàn bộ vòng đời đặt vé:
+
+- Tìm chuyến
+- Chọn ghế
+- Giữ chỗ (HOLDING)
+- Checkout cập nhật thông tin
+- Thanh toán
+- Xuất vé điện tử (QR)
+- Gửi email vé
+- Trang vé public
+- Hủy vé & hoàn tiền
+- Realtime seat
+- Cron vận hành tự động
+
+---
+
+## Tech Stack
+
+- **Frontend**: Next.js (App Router)
+- **Backend**: Node.js + Express + Prisma
+- **Database**: PostgreSQL (Docker)
+- **Realtime**: Server-Sent Events (SSE)
+
+---
+
+## Tính năng chính
+
+### 1. Checkout cập nhật trước thanh toán
+
+- Endpoint: `POST /api/bookings/update-checkout`
+- Chỉ update booking `HOLDING`, không tạo mới
+- Cập nhật:
+  - `contactEmail`
+  - `contactPhone`
+  - thông tin hành khách theo từng ghế
+
+---
+
+### 2. Vé điện tử + QR
+
+- Khi thanh toán thành công:
+  - Sinh QR bằng `QRCode.toDataURL`
+  - Encode URL: `${FRONTEND_URL}/tickets/${booking.id}`
+- Lưu vào: `Ticket.qrDataUrl`
+- QR scan bằng app ngoài sẽ mở trực tiếp trang vé
+
+---
+
+### 3. Email vé điện tử
+
+- Gửi tới `booking.contactEmail`
+- Nội dung:
+  - Thông tin booking đầy đủ
+  - QR hiển thị trực tiếp
+  - Nút CTA mở trang vé
+- QR dùng **CID attachment** để hiển thị ổn định trên email client
+
+---
+
+### 4. Trang vé điện tử (public)
+
+- Route: `/tickets/[id]`
+- Không cần login
+- Full-screen (không header/footer)
+
+Hiển thị:
+
+- Booking info
+- Trip info
+- Passenger list
+- Seat info
+- Payment info
+- Contact info
+- QR code thật
+
+---
+
+### 5. Debug QR
+
+- Endpoint: `GET /debug/qr`
+- Dùng để test QR độc lập
+- Kiểm tra:
+  - QR có generate đúng không
+  - URL có encode đúng không
+
+---
+
+## Cài đặt nhanh
+
+### 1. Database
+
+```bash
 docker compose up -d --build
+```
 
-This will start the PostgreSQL database.
+### 2. Backend
 
-2. Run Backend (API)
+```bash
 cd api
 npm install
 
-Then:
-
-# 1. chạy DB
-docker compose up -d
-
-# 2. tạo bảng
 npx prisma db push
-
-# 3. generate client
 npx prisma generate
-
-# 4. seed
 npx prisma db seed
 
 npm run dev
+```
 
-Backend will run at:
+Backend chạy tại:
 
-http://localhost:4000
-3. Run Frontend (Web)
+`http://localhost:4000`
+
+### 3. Frontend
+
+```bash
 cd web
 npm install
 npm run dev
+```
 
-Frontend will run at:
+Frontend chạy tại:
 
-http://localhost:3000
-
-# Train Booking System
-
-Hệ thống đặt vé tàu full-flow, hỗ trợ từ tìm chuyến → chọn ghế → giữ chỗ → thanh toán → xuất vé điện tử → hủy vé hoàn tiền → thông báo realtime.
+`http://localhost:3000`
 
 ---
 
-## 1. Mục tiêu sản phẩm
+## Biến môi trường
 
-Xây dựng hệ thống đặt vé tàu hoàn chỉnh với 2 nhóm người dùng:
+### Backend (`api/.env`)
 
-- User: tìm chuyến, chọn ghế, đặt vé, thanh toán, nhận vé
-- Admin: quản lý tàu, chuyến, toa, ghế, booking, vận hành hệ thống
+```env
+DATABASE_URL=
+PORT=4000
 
-### Tech stack
+FRONTEND_URL=http://localhost:3000
+APP_URL=http://localhost:4000
 
-- Backend: Express + Prisma + PostgreSQL  
-- Frontend: Next.js (App Router)  
-- Realtime: Server-Sent Events (SSE)
-
----
-
-## 2. Kiến trúc tổng thể
-
-- Backend cung cấp REST API trung tâm
-- Frontend gọi API qua HTTP
-- Realtime seat update dùng SSE theo từng chuyến
-
-### Tổ chức module
-
-- Auth
-- Trip
-- Booking
-- Ticket
-- Notification
-- Admin
-
-
-app.ts → main router
-sseRoutes.ts → realtime channel
-
+EMAIL_HOST=
+EMAIL_PORT=
+EMAIL_USER=
+EMAIL_PASS=
+```
 
 ---
 
-## 3. Data Model cốt lõi
+## Lưu ý quan trọng
+
+Test QR bằng điện thoại:
+
+- **KHÔNG** dùng localhost
+- Dùng IP LAN: `http://192.168.x.x:3000`
+
+---
+
+## Luồng nghiệp vụ
+
+### Flow chính
+
+1. User chọn ghế
+2. Tạo booking HOLDING
+3. Lock ghế tạm thời
+4. Checkout cập nhật thông tin
+5. Thanh toán -> PAID
+6. Tạo ticket + QR
+7. Gửi email
+8. User mở `/tickets/{bookingId}`
+
+### Realtime Seat System
+
+#### Cách hoạt động
+
+- Client subscribe:
+
+`GET /api/sse/trip/:tripId`
+
+- Server emit:
+
+`emitSeatUpdates(tripId, updates)`
+
+- Frontend update state trực tiếp (không refetch)
+
+---
+
+## Cron vận hành
+
+Tự động xử lý:
+
+- Expire booking HOLDING
+- Nhắc hết hạn giữ chỗ
+- Nhắc chuyến sắp chạy
+- Update trạng thái trip
+
+---
+
+## Chính sách hoàn tiền
+
+| Thời gian trước giờ chạy | Hoàn tiền |
+| --- | --- |
+| > 48h | 75% |
+| > 24h | 50% |
+| < 24h | 25% |
+
+---
+
+## Data Model
 
 ### Quan hệ chính
 
+`Trip -> TripCarriage -> TripSeat`
 
-Trip → TripCarriage → TripSeat
-
-Booking → BookingSeat
-→ Payment
-→ Ticket
-→ Refund
-→ Notification
-
+`Booking -> BookingSeat -> Payment -> Ticket -> Refund -> Notification`
 
 ### Enum nghiệp vụ
 
-- TripStatus: ON_TIME, DELAYED, DEPARTED, COMPLETED, CANCELLED
-- BookingStatus: HOLDING, PAID, CANCELLED, REFUNDED
-- PaymentStatus: PENDING, PAID, REFUNDED
-- NotificationType: REMINDER, DELAY, CANCEL, HOLD_EXPIRE
+#### TripStatus
 
-### Điểm mạnh
+- ON_TIME
+- DELAYED
+- DEPARTED
+- COMPLETED
+- CANCELLED
 
-- Tách rõ seat runtime vs seat snapshot
-- Booking lưu priceSnapshot để đảm bảo consistency
-- Schema phù hợp hệ thống vận tải thực tế
+#### BookingStatus
 
----
+- HOLDING
+- PAID
+- CANCELLED
+- REFUNDED
 
-## 4. Flow nghiệp vụ chính
+#### PaymentStatus
 
-### 4.1 Tìm chuyến và xem ghế
+- PENDING
+- PAID
+- REFUNDED
 
-- API: tripRoutes.ts
-- Logic seat runtime:
-  - ACTIVE
-  - INACTIVE
-  - HOLDING
-  - SOLD
+#### NotificationType
 
-Xử lý tại:
-
-
-tripService.ts
-
+- REMINDER
+- DELAY
+- CANCEL
+- HOLD_EXPIRE
 
 ---
 
-### 4.2 Đặt vé
+## Admin Module
 
-Flow chuẩn:
+Quản lý:
 
-1. User chọn ghế
-2. Click "Thanh toán"
-3. Tạo booking HOLDING
-4. Set holdExpiresAt (ví dụ: +5 phút)
-5. Lock ghế tạm thời
+- Station
+- Train
+- Carriage Template
+- Trip
+- Booking
+- User
 
----
+Điểm mạnh:
 
-### 4.3 Thanh toán
-
-- Booking chuyển sang PAID
-- Sinh:
-  - Ticket
-  - QR code
+- Không chỉ CRUD
+- Có đầy đủ logic vận hành thực tế
 
 ---
 
-### 4.4 Hủy vé và hoàn tiền
+## Demo Flow
 
-Policy:
-
-| Thời gian trước giờ chạy | Hoàn tiền |
-|-------------------------|----------|
-| > 48h                  | 75%      |
-| > 24h                  | 50%      |
-| < 24h                  | 25%      |
-
----
-
-## 5. Realtime Seat System
-
-### Cách hoạt động
-
-#### 1. Client subscribe SSE theo trip
-
-
-GET /api/sse/trip/:tripId
-
-
-#### 2. Server emit khi có thay đổi ghế
-
-
-emitSeatUpdates(tripId, updates)
-
-
-#### 3. Frontend nhận event và update state
-
-- Không cần refetch toàn bộ
-- Update theo seatId
-
-### File liên quan
-
-
-sseRoutes.ts
-sse.ts
-bookingService.ts
-use-seat-realtime.ts
-
-
----
-
-## 6. Admin module
-
-Chức năng:
-
-- Quản lý station
-- Quản lý train
-- Quản lý carriage template
-- Quản lý trip
-- Quản lý booking
-- Quản lý user
-
-Route:
-
-
-adminRoutes.ts
-
-
-Điểm nổi bật:
-
-- Admin có thể vận hành toàn bộ vòng đời hệ thống
-- Không chỉ CRUD mà có logic nghiệp vụ thực tế
-
----
-
-## 7. Vận hành tự động (cron)
-
-Cron job xử lý:
-
-- Expire booking HOLDING
-- Gửi nhắc hết hạn giữ chỗ
-- Gửi nhắc chuyến sắp khởi hành
-- Update trạng thái trip theo thời gian
-
-File:
-
-
-index.ts
-
-
----
-
-## 8. Bảo mật và chuẩn backend
-
-### Authentication
-
-- Token custom
-- Parse từ Authorization header
-
-
-auth.ts
-
-
-### Validation
-
-- Dùng zod tại route layer
-
-Ví dụ:
-
-
-authRoutes.ts
-bookingRoutes.ts
-
-
-### Error handling
-
-- Centralized error handler
-
-
-errorHandler.ts
-
-
----
-
-## 9. Demo flow
-
-### User flow
+### User
 
 1. Search trip
-2. Xem ghế
-3. Chọn ghế
+2. Chọn ghế
+3. Checkout
 4. Thanh toán
 5. Nhận vé
 
-### Realtime demo
+### Realtime
 
-- Mở 2 tab cùng 1 chuyến
-- Chọn ghế ở tab A → tab B update ngay
+- Mở 2 tab cùng chuyến
+- Tab A chọn ghế -> tab B update ngay
 
-### Admin demo
+### Admin
 
-- Tạo/chỉnh trip
-- Quản lý toa và ghế
+- Tạo trip
+- Quản lý toa & ghế
+- Theo dõi booking
 
 ---
 
-## 10. Key điểm mạnh
+## Điểm mạnh hệ thống
 
-- Thiết kế theo domain rõ ràng → dễ mở rộng
-- Realtime seat + hold lifecycle → giải quyết tranh chấp ghế
-- Full flow từ user đến admin → có thể vận hành thực tế
+- Thiết kế theo domain rõ ràng
+- Realtime seat + hold lifecycle chuẩn
+- Full flow từ user -> admin
+- Có thể vận hành thực tế
