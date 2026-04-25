@@ -55,7 +55,7 @@ export default function Home() {
         <div className="w-[80vw] mx-auto px-4">
           <PromoBanner />
         </div>
-      </section>F
+      </section>
       {/* CTA Section */}
       <section className="pb-12 md:pb-20 bg-blue-100">
         <div className="max-w-5xl mx-auto">

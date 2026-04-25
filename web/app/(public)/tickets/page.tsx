@@ -208,7 +208,14 @@ export default function TicketsPage() {
                         Chưa phát hành vé
                       </Button>
                     )}
-                    <Button variant="outline" size="sm" className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" className="flex items-center gap-2"
+                      onClick={() => {
+                        window.open(
+                          `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000'}/api/tickets/${booking.id}/pdf`,
+                          '_blank'
+                        );
+                      }}
+                    >
                       <Download className="w-4 h-4" />
                       Tải xuống
                     </Button>

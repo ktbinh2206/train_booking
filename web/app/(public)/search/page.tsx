@@ -31,15 +31,15 @@ export default function SearchPage() {
     e.preventDefault();
     setSearchError('');
 
-    if (!departureStationId || !arrivalStationId) {
-      setSearchError('Vui lòng chọn đầy đủ ga đi và ga đến.');
-      return;
-    }
+    // if (!departureStationId || !arrivalStationId) {
+    //   setSearchError('Vui lòng chọn đầy đủ ga đi và ga đến.');
+    //   return;
+    // }
 
-    if (departureStationId === arrivalStationId) {
-      setSearchError('Ga đi và ga đến phải khác nhau.');
-      return;
-    }
+    // if (departureStationId === arrivalStationId) {
+    //   setSearchError('Ga đi và ga đến phải khác nhau.');
+    //   return;
+    // }
 
     if (tripType === 'round-trip' && toDate && fromDate && toDate < fromDate) {
       setSearchError('Ngày về phải sau ngày đi.');

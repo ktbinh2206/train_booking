@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../lib/asyncHandler';
 import { AppError } from '../lib/errors';
 import { prisma } from '../lib/prisma';
+import { downloadTicketPdf } from '../services/pdfService';
 
 export const ticketRoutes = Router();
 
@@ -55,3 +56,12 @@ ticketRoutes.get('/:bookingId', asyncHandler(async (request, response) => {
     }
   });
 }));
+
+ticketRoutes.get('/:bookingId/pdf', asyncHandler(async (request, response) => {
+  const bookingId = typeof request.params.bookingId === 'string' ? request.params.bookingId : undefined;
+  if (!bookingId) {
+    throw new AppError('Không tìm thấy vé.', 404);
+  }
+  await downloadTicketPdf(bookingId, response);
+})
+);
