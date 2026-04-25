@@ -8,6 +8,7 @@ import { createQrDataUrl } from '../lib/qr';
 import { isBookingUsable, isTripActive } from '../lib/bookingHelpers';
 import { sendNotification } from './notificationService';
 import { buildNotificationMessage } from './notificationMessage';
+import { getSystemRuntimeSettings } from './systemSettingService';
 
 const frontendUrl = (process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 
@@ -46,6 +47,29 @@ export function calculateRefund(departureTime: Date, now: Date, amount: number):
   }
 
   return Math.floor(amount * 0.25);
+}
+
+function calculateRefundWithPolicy(
+  departureTime: Date,
+  now: Date,
+  amount: number,
+  policy: { over48h: number; over24h: number; under24h: number }
+) {
+  const msUntilDeparture = departureTime.getTime() - now.getTime();
+  if (msUntilDeparture <= 0) {
+    return 0;
+  }
+
+  const hoursUntilDeparture = msUntilDeparture / (1000 * 60 * 60);
+  if (hoursUntilDeparture > 48) {
+    return Math.floor(amount * (policy.over48h / 100));
+  }
+
+  if (hoursUntilDeparture >= 24) {
+    return Math.floor(amount * (policy.over24h / 100));
+  }
+
+  return Math.floor(amount * (policy.under24h / 100));
 }
 
 export async function createBooking(input: {
@@ -124,7 +148,8 @@ export async function createBooking(input: {
     new Decimal(0)
   );
 
-  const holdExpiresAt = addMinutes(now, 5);
+  const runtimeSettings = await getSystemRuntimeSettings();
+  const holdExpiresAt = addMinutes(now, runtimeSettings.holdExpireMinutes);
 
   const bookingCode = `BK-${now
     .getTime()
@@ -302,7 +327,8 @@ export async function holdOrGetBooking(input: {
       new Decimal(0)
     );
 
-    const holdExpiresAt = addMinutes(now, 5);
+    const runtimeSettings = await getSystemRuntimeSettings();
+    const holdExpiresAt = addMinutes(now, runtimeSettings.holdExpireMinutes);
 
     const bookingCode = `BK-${now
       .getTime()
@@ -686,6 +712,9 @@ export async function listBookings(input: {
   status?: 'HOLDING' | 'PAID' | 'EXPIRED' | 'CANCELLED' | 'REFUNDED';
   from?: string;
   to?: string;
+  origin?: string;
+  destination?: string;
+  date?: string;
 }) {
   const where: any = {};
 
@@ -707,6 +736,27 @@ export async function listBookings(input: {
         lte: toRange?.end
       }
     };
+  }
+
+  if (input.origin?.trim() || input.destination?.trim() || input.date?.trim()) {
+    const tripWhere: Record<string, unknown> = where.trip ?? {};
+
+    if (input.origin?.trim()) {
+      tripWhere.origin = { contains: input.origin.trim(), mode: 'insensitive' };
+    }
+
+    if (input.destination?.trim()) {
+      tripWhere.destination = { contains: input.destination.trim(), mode: 'insensitive' };
+    }
+
+    if (input.date?.trim()) {
+      const range = parseVnDateInputToUtcRange(input.date.trim());
+      if (range) {
+        tripWhere.departureTime = { gte: range.start, lte: range.end };
+      }
+    }
+
+    where.trip = tripWhere;
   }
 
   return prisma.booking.findMany({
@@ -769,7 +819,12 @@ export async function cancelBooking(bookingId: string, userId: string): Promise<
   }
 
   const bookingAmount = Number(booking.totalAmount);
-  const refundAmount = calculateRefund(departureTime, now, bookingAmount);
+  const runtimeSettings = await getSystemRuntimeSettings();
+  const refundAmount = calculateRefundWithPolicy(departureTime, now, bookingAmount, {
+    over48h: runtimeSettings.refundPolicy1,
+    over24h: runtimeSettings.refundPolicy2,
+    under24h: runtimeSettings.refundPolicy3
+  });
 
   await prisma.$transaction(async (transaction) => {
     await transaction.booking.update({

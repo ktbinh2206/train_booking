@@ -43,6 +43,7 @@ function ResultsPageContent() {
   const arrivalStationId = searchParams.get('arrivalStationId') || searchParams.get('destination') || '';
   const fromDate = searchParams.get('fromDate') || searchParams.get('date') || searchParams.get('departDate') || '';
   const toDate = searchParams.get('toDate') || searchParams.get('returnDate') || '';
+  const status = searchParams.get('status') || 'all';
   const tripType = searchParams.get('tripType') === 'round-trip' ? 'round-trip' : 'one-way';
   const passengers = searchParams.get('passengers') || '1';
   const effectiveFromDate = fromDate || toLocalYmd();
@@ -54,6 +55,7 @@ function ResultsPageContent() {
     arrivalStationId,
     fromDate: effectiveFromDate,
     toDate: effectiveToDate,
+    status,
     tripType,
     passengers: passengers || '1',
     useRange: !!(fromDate || toDate)
@@ -87,11 +89,25 @@ function ResultsPageContent() {
     setPage(1);
   }, [departureStationId, arrivalStationId, fromDate, toDate, tripType]);
 
+  useEffect(() => {
+    setFormData({
+      departureStationId,
+      arrivalStationId,
+      fromDate: effectiveFromDate,
+      toDate: effectiveToDate,
+      status,
+      tripType,
+      passengers: passengers || '1',
+      useRange: !!(fromDate || toDate)
+    });
+  }, [departureStationId, arrivalStationId, effectiveFromDate, effectiveToDate, status, tripType, passengers, fromDate, toDate]);
+
   // Update search params when form changes
   const handleEditSearch = () => {
     const params = new URLSearchParams();
     if (formData.departureStationId.trim()) params.set('departureStationId', formData.departureStationId.trim());
     if (formData.arrivalStationId.trim()) params.set('arrivalStationId', formData.arrivalStationId.trim());
+    if (formData.status && formData.status !== 'all') params.set('status', formData.status);
 
     if (formData.useRange) {
       if (formData.fromDate.trim()) params.set('fromDate', formData.fromDate.trim());
@@ -118,6 +134,7 @@ function ResultsPageContent() {
         const data = await searchTrips({
           departureStationId: departureStationId.trim() || undefined,
           arrivalStationId: arrivalStationId.trim() || undefined,
+          status: status !== 'all' ? status : undefined,
           fromDate: (fromDate || effectiveFromDate).trim() || undefined,
           toDate: (toDate || effectiveToDate).trim() || undefined,
           tripType,
@@ -150,7 +167,7 @@ function ResultsPageContent() {
     return () => {
       active = false;
     };
-  }, [departureStationId, arrivalStationId, fromDate, toDate, tripType, page]);
+  }, [departureStationId, arrivalStationId, fromDate, toDate, status, tripType, page]);
 
   const filteredTrips = useMemo(
     () => trips.filter((trip) => trip.basePrice <= maxPrice),
@@ -183,7 +200,7 @@ function ResultsPageContent() {
       {/* Embedded Search Form */}
       <div className="mt-6 mb-8 bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Chỉnh sửa tìm kiếm</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
           {/* Origin */}
           <div>
             <StationSearchSelect
@@ -204,6 +221,22 @@ function ResultsPageContent() {
               exclude={formData.departureStationId}
               onChange={(value) => setFormData((previous) => ({ ...previous, arrivalStationId: value }))}
             />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-1 block">Trạng thái</label>
+            <select
+              value={formData.status}
+              onChange={(event) => setFormData((previous) => ({ ...previous, status: event.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500"
+            >
+              <option value="all">Tất cả trạng thái</option>
+              <option value="ON_TIME">Đúng giờ</option>
+              <option value="DELAYED">Trễ giờ</option>
+              <option value="DEPARTED">Đã khởi hành</option>
+              <option value="COMPLETED">Hoàn thành</option>
+              <option value="CANCELLED">Đã hủy</option>
+            </select>
           </div>
 
           {/* Date or Date Range Toggle */}

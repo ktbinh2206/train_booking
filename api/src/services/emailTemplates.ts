@@ -3,6 +3,7 @@ export type BookingEmailStatus = 'HOLDING' | 'PAID' | 'CANCELLED' | 'REFUNDED';
 type TicketHtmlBookingInput = {
   id: string;
   code: string;
+  status: BookingEmailStatus;
   contactEmail: string;
   totalAmount: number | string;
   seatCount: number;
@@ -12,6 +13,11 @@ type TicketHtmlBookingInput = {
     departureTime: Date;
     trainName: string;
   };
+  passengers: Array<{
+    name: string;
+    type: string;
+    seatNumber: string;
+  }>;
 };
 
 type TicketHtmlInput = {
@@ -84,16 +90,50 @@ export function buildTicketEmailHtml(input: TicketHtmlInput) {
   const frontendUrl = process.env.FRONTEND_URL ?? process.env.APP_URL ?? 'http://localhost:3000';
   const ticketUrl = `${frontendUrl}/tickets/${input.booking.id}`;
   const qrImageSrc = input.ticket.qrImageSrc ?? input.ticket.qrDataUrl;
+  const statusLabel = input.booking.status === 'PAID'
+    ? 'Đã thanh toán'
+    : input.booking.status === 'CANCELLED'
+      ? 'Đã hủy'
+      : input.booking.status === 'REFUNDED'
+        ? 'Đã hoàn tiền'
+        : 'Đang giữ chỗ';
+  const statusBackground = input.booking.status === 'PAID'
+    ? '#dcfce7'
+    : input.booking.status === 'CANCELLED'
+      ? '#fee2e2'
+      : input.booking.status === 'REFUNDED'
+        ? '#f3e8ff'
+        : '#dbeafe';
+  const statusColor = input.booking.status === 'PAID'
+    ? '#166534'
+    : input.booking.status === 'CANCELLED'
+      ? '#991b1b'
+      : input.booking.status === 'REFUNDED'
+        ? '#6b21a8'
+        : '#1d4ed8';
+  const passengerRows = input.booking.passengers.length > 0
+    ? input.booking.passengers.map((passenger, index) => `
+        <tr>
+          <td style="padding:10px 12px;border-top:1px solid #e5e7eb;color:#475569;font-size:13px">${index + 1}</td>
+          <td style="padding:10px 12px;border-top:1px solid #e5e7eb;color:#0f172a;font-size:13px;font-weight:600">${escapeHtml(passenger.name)}</td>
+          <td style="padding:10px 12px;border-top:1px solid #e5e7eb;color:#475569;font-size:13px">${escapeHtml(passenger.type)}</td>
+          <td style="padding:10px 12px;border-top:1px solid #e5e7eb;color:#0f172a;font-size:13px;font-weight:600">${escapeHtml(passenger.seatNumber)}</td>
+        </tr>`).join('')
+    : `<tr><td colspan="4" style="padding:12px;color:#64748b;font-size:13px;border-top:1px solid #e5e7eb">Chưa có thông tin hành khách</td></tr>`;
 
   return `
   <div style="font-family:Arial,sans-serif;background:#f1f5f9;padding:24px 12px;color:#0f172a">
     <div style="max-width:720px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #dbeafe">
-      <div style="background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#ffffff;padding:20px 24px">
+      <div style="background:linear-gradient(135deg,#0f766e,#115e59);color:#ffffff;padding:20px 24px">
         <h1 style="margin:0;font-size:28px;letter-spacing:0.5px">VÉ ĐIỆN TỬ</h1>
         <p style="margin:8px 0 0;font-size:16px;opacity:.95">${escapeHtml(input.booking.trip.origin)} → ${escapeHtml(input.booking.trip.destination)}</p>
       </div>
 
       <div style="padding:24px">
+        <div style="margin-bottom:16px">
+          <span style="display:inline-block;padding:6px 12px;border-radius:999px;background:${statusBackground};color:${statusColor};font-size:12px;font-weight:700;letter-spacing:0.08em">${escapeHtml(statusLabel)}</span>
+        </div>
+
         <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:16px 18px;margin-bottom:16px">
           <h2 style="margin:0 0 12px;font-size:18px;color:#1e293b">Thông tin vé</h2>
           <table role="presentation" style="width:100%;border-collapse:collapse;font-size:14px">
@@ -105,6 +145,23 @@ export function buildTicketEmailHtml(input: TicketHtmlInput) {
               <tr><td style="padding:8px 0;color:#64748b">Thời gian</td><td style="padding:8px 0">${escapeHtml(formatVnDateTime(input.booking.trip.departureTime))}</td></tr>
               <tr><td style="padding:8px 0;color:#64748b">Số ghế</td><td style="padding:8px 0">${input.booking.seatCount}</td></tr>
               <tr><td style="padding:8px 0;color:#64748b">Tổng tiền</td><td style="padding:8px 0;font-weight:700;color:#2563eb">${escapeHtml(formatAmountVnd(input.booking.totalAmount))}</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:16px 18px;margin-bottom:16px">
+          <h2 style="margin:0 0 12px;font-size:18px;color:#1e293b">Hành khách</h2>
+          <table role="presentation" style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">
+            <thead>
+              <tr>
+                <th align="left" style="padding:10px 12px;background:#f8fafc;font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.04em">#</th>
+                <th align="left" style="padding:10px 12px;background:#f8fafc;font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.04em">Tên</th>
+                <th align="left" style="padding:10px 12px;background:#f8fafc;font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.04em">Loại</th>
+                <th align="left" style="padding:10px 12px;background:#f8fafc;font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.04em">Ghế</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${passengerRows}
             </tbody>
           </table>
         </div>

@@ -1,12 +1,15 @@
 import { TripStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { isBookingUsable } from '../lib/bookingHelpers';
-import { parseVnDateInputToUtcRange, startOfDay } from '../lib/dates';
+import { parseVnDateInputToUtcRange } from '../lib/dates';
 import { getEndOfDayUTC7, getStartOfDayUTC7, getTodayInVN, isValidDateString, toVNTimeString } from '../lib/timezone';
 
 type TripSearchInput = {
+  origin?: string | undefined;
+  destination?: string | undefined;
   departureStationId?: string | undefined;
   arrivalStationId?: string | undefined;
+  status?: string | undefined;
   date?: string | undefined;
   fromDate?: string | undefined;
   toDate?: string | undefined;
@@ -144,12 +147,57 @@ export async function searchTrips(input: TripSearchInput) {
   const { page, pageSize, skip } = normalizePage(input.page, input.pageSize);
   const where: any = { status: { not: TripStatus.CANCELLED } };
 
-  if (input.departureStationId?.trim()) {
-    where.originStationId = input.departureStationId.trim();
+  const status = input.status?.trim();
+  if (status && Object.values(TripStatus).includes(status as TripStatus)) {
+    where.status = status;
   }
 
-  if (input.arrivalStationId?.trim()) {
-    where.destinationStationId = input.arrivalStationId.trim();
+  const originFilter = input.origin?.trim();
+  const destinationFilter = input.destination?.trim();
+  const departureStationId = input.departureStationId?.trim();
+  const arrivalStationId = input.arrivalStationId?.trim();
+
+  if (departureStationId) {
+    const originStation = await prisma.station.findUnique({
+      where: { id: departureStationId },
+      select: { name: true, code: true }
+    });
+
+    if (originStation) {
+      where.OR = [
+        { originStationId: departureStationId },
+        { origin: { contains: originStation.name, mode: 'insensitive' } },
+        { origin: { contains: originStation.code, mode: 'insensitive' } }
+      ];
+    } else {
+      where.originStationId = departureStationId;
+    }
+  } else if (originFilter) {
+    where.origin = { contains: originFilter, mode: 'insensitive' };
+  }
+
+  if (arrivalStationId) {
+    const destinationStation = await prisma.station.findUnique({
+      where: { id: arrivalStationId },
+      select: { name: true, code: true }
+    });
+
+    if (destinationStation) {
+      where.AND = [
+        ...(where.AND ?? []),
+        {
+          OR: [
+            { destinationStationId: arrivalStationId },
+            { destination: { contains: destinationStation.name, mode: 'insensitive' } },
+            { destination: { contains: destinationStation.code, mode: 'insensitive' } }
+          ]
+        }
+      ];
+    } else {
+      where.destinationStationId = arrivalStationId;
+    }
+  } else if (destinationFilter) {
+    where.destination = { contains: destinationFilter, mode: 'insensitive' };
   }
 
   const fromDate = input.fromDate?.trim() || input.date?.trim();
@@ -165,15 +213,7 @@ export async function searchTrips(input: TripSearchInput) {
     };
   }
 
-  if (!where.departureTime) {
-    where.departureTime = { gte: startOfDay(new Date()) };
-  }
-
-  console.log("where:", where);
-
   const total = await prisma.trip.count({ where });
-
-  console.log("total:", total);
 
   const trips = await prisma.trip.findMany({
     where,
@@ -182,9 +222,6 @@ export async function searchTrips(input: TripSearchInput) {
     skip,
     take: pageSize
   });
-
-  console.log("trips:", trips);
-  
 
   return buildTripListResponse(trips, page, pageSize, total);
 }

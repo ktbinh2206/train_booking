@@ -66,6 +66,7 @@ import {
   updateCarriageTemplateRailwayAdmin,
   updateTrainRailwayAdmin
 } from '../services/railwayAdminService';
+import { getSystemSettings, saveSystemSettings } from '../services/systemSettingService';
 
 export const adminRoutes = Router();
 
@@ -335,7 +336,13 @@ const bookingPayloadSchema = z.object({
 });
 
 adminRoutes.get('/bookings', asyncHandler(async (request, response) => {
-  response.json(await listBookingsAdmin(getPaginationQuery(request)));
+  response.json(await listBookingsAdmin({
+    ...getPaginationQuery(request),
+    status: typeof request.query.status === 'string' ? request.query.status : undefined,
+    origin: typeof request.query.origin === 'string' ? request.query.origin : undefined,
+    destination: typeof request.query.destination === 'string' ? request.query.destination : undefined,
+    date: typeof request.query.date === 'string' ? request.query.date : undefined
+  }));
 }));
 
 adminRoutes.get('/bookings/:id', asyncHandler(async (request, response) => {
@@ -422,6 +429,25 @@ adminRoutes.put('/users/:id', asyncHandler(async (request, response) => {
 
 adminRoutes.delete('/users/:id', asyncHandler(async (request, response) => {
   response.json(await deleteUserAdmin(getIdParam(request, 'id')));
+}));
+
+const systemSettingsSchema = z.object({
+  settings: z.object({
+    HOLD_EXPIRE_MINUTES: z.string().min(1),
+    REMINDER_BEFORE_MINUTES: z.string().min(1),
+    REFUND_POLICY_1: z.string().min(1),
+    REFUND_POLICY_2: z.string().min(1),
+    REFUND_POLICY_3: z.string().min(1)
+  })
+});
+
+adminRoutes.get('/settings', asyncHandler(async (_request, response) => {
+  response.json({ settings: await getSystemSettings() });
+}));
+
+adminRoutes.put('/settings', asyncHandler(async (request, response) => {
+  const payload = systemSettingsSchema.parse(request.body);
+  response.json({ settings: await saveSystemSettings(payload.settings) });
 }));
 
 adminRoutes.get('/reports', asyncHandler(async (request, response) => {

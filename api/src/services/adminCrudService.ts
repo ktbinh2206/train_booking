@@ -4,10 +4,15 @@ import { prisma } from '../lib/prisma';
 import { AppError } from '../lib/errors';
 import { hashPassword } from '../lib/password';
 import { createBooking as createBookingBusiness, payBooking as payBookingBusiness } from './bookingService';
+import { parseVnDateInputToUtcRange } from '../lib/dates';
 
 type PaginationInput = {
   page?: number;
   pageSize?: number;
+  status?: string;
+  origin?: string;
+  destination?: string;
+  date?: string;
 };
 
 function seatIdFromTrainCode(trainCode: string, carriageCode: string, seatCode: string) {
@@ -618,9 +623,40 @@ export async function deleteTripAdmin(tripId: string) {
 
 export async function listBookingsAdmin(input: PaginationInput) {
   const { page, pageSize, skip } = normalizePagination(input);
+  const where: any = {};
+
+  if (input.status) {
+    where.status = input.status;
+  }
+
+  const origin = input.origin?.trim();
+  const destination = input.destination?.trim();
+
+  if (origin || destination || input.date?.trim()) {
+    const tripWhere: any = {};
+
+    if (origin) {
+      tripWhere.origin = { contains: origin, mode: 'insensitive' };
+    }
+
+    if (destination) {
+      tripWhere.destination = { contains: destination, mode: 'insensitive' };
+    }
+
+    if (input.date?.trim()) {
+      const range = parseVnDateInputToUtcRange(input.date.trim());
+      if (range) {
+        tripWhere.departureTime = { gte: range.start, lte: range.end };
+      }
+    }
+
+    where.trip = tripWhere;
+  }
+
   const [total, items] = await Promise.all([
-    prisma.booking.count(),
+    prisma.booking.count({ where }),
     prisma.booking.findMany({
+      where,
       include: {
         user: true,
         trip: {

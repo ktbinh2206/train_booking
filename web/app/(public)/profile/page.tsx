@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { User, Lock, Bell, LogOut, Edit2, Save } from 'lucide-react';
 import { VN } from '@/lib/translations';
-import { getCurrentUser } from '@/lib/api';
+import { changePassword, getCurrentUser } from '@/lib/api';
 import { useAuth } from '@/components/auth/auth-provider';
 import Link from 'next/link';
 
@@ -17,6 +17,14 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState({ totalBookings: 0, totalTickets: 0 });
+  const [isPasswordOpen, setIsPasswordOpen] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
+  const [passwordForm, setPasswordForm] = useState({
+    oldPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -79,6 +87,30 @@ export default function ProfilePage() {
   const handleSave = () => {
     setIsEditing(false);
     // API call would go here
+  };
+
+  const handleChangePassword = async () => {
+    try {
+      setPasswordSaving(true);
+      setPasswordMessage(null);
+
+      if (!passwordForm.oldPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+        throw new Error('Vui lòng nhập đầy đủ thông tin mật khẩu.');
+      }
+
+      if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+        throw new Error('Mật khẩu mới và xác nhận mật khẩu không khớp.');
+      }
+
+      await changePassword(passwordForm);
+      setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+      setPasswordMessage('Đổi mật khẩu thành công.');
+      setIsPasswordOpen(false);
+    } catch (unknownError) {
+      setPasswordMessage(unknownError instanceof Error ? unknownError.message : 'Không thể đổi mật khẩu.');
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   return (
@@ -234,10 +266,55 @@ export default function ProfilePage() {
           {/* Security */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Bảo mật</h2>
-            <Button variant="outline" className="w-full flex items-center gap-2 justify-center">
+            <Button
+              variant="outline"
+              className="w-full flex items-center gap-2 justify-center"
+              onClick={() => setIsPasswordOpen((value) => !value)}
+            >
               <Lock className="w-4 h-4" />
-              Đổi mật khẩu
+              {isPasswordOpen ? 'Đóng đổi mật khẩu' : 'Đổi mật khẩu'}
             </Button>
+            {passwordMessage && (
+              <p className="mt-3 text-sm text-gray-600">{passwordMessage}</p>
+            )}
+            {isPasswordOpen && (
+              <div className="mt-4 space-y-4 border-t border-gray-100 pt-4">
+                <div>
+                  <Label htmlFor="oldPassword" className="text-sm mb-2">Mật khẩu cũ</Label>
+                  <Input
+                    id="oldPassword"
+                    type="password"
+                    value={passwordForm.oldPassword}
+                    onChange={(event) => setPasswordForm((previous) => ({ ...previous, oldPassword: event.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="newPassword" className="text-sm mb-2">Mật khẩu mới</Label>
+                  <Input
+                    id="newPassword"
+                    type="password"
+                    value={passwordForm.newPassword}
+                    onChange={(event) => setPasswordForm((previous) => ({ ...previous, newPassword: event.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="confirmPassword" className="text-sm mb-2">Xác nhận mật khẩu mới</Label>
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    value={passwordForm.confirmPassword}
+                    onChange={(event) => setPasswordForm((previous) => ({ ...previous, confirmPassword: event.target.value }))}
+                  />
+                </div>
+                <Button
+                  className="w-full bg-blue-600 hover:bg-blue-700"
+                  onClick={handleChangePassword}
+                  disabled={passwordSaving}
+                >
+                  {passwordSaving ? 'Đang lưu...' : 'Lưu mật khẩu mới'}
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Danger Zone */}

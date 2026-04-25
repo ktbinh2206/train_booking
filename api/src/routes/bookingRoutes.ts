@@ -33,11 +33,14 @@ const updateCheckoutSchema = z.object({
 bookingRoutes.get('/', asyncHandler(async (request, response) => {
   const authUser = getAuthUserFromRequest(request);
   const statusQuery = typeof request.query.status === 'string' ? request.query.status : undefined;
+  const origin = typeof request.query.origin === 'string' ? request.query.origin.trim() : undefined;
+  const destination = typeof request.query.destination === 'string' ? request.query.destination.trim() : undefined;
+  const date = typeof request.query.date === 'string' ? request.query.date.trim() : undefined;
   const allowedStatuses = ['HOLDING', 'PAID', 'EXPIRED', 'CANCELLED', 'REFUNDED'] as const;
   const status = statusQuery && allowedStatuses.includes(statusQuery as (typeof allowedStatuses)[number])
     ? (statusQuery as (typeof allowedStatuses)[number])
     : undefined;
-  const filter: { userId?: string; status?: 'HOLDING' | 'PAID' | 'EXPIRED' | 'CANCELLED' | 'REFUNDED'; from?: string; to?: string } = {};
+  const filter: { userId?: string; status?: 'HOLDING' | 'PAID' | 'EXPIRED' | 'CANCELLED' | 'REFUNDED'; from?: string; to?: string; origin?: string; destination?: string; date?: string } = {};
   const userId = typeof request.query.userId === 'string' ? request.query.userId : undefined;
   const from = typeof request.query.from === 'string' ? request.query.from : undefined;
   const to = typeof request.query.to === 'string' ? request.query.to : undefined;
@@ -52,6 +55,9 @@ bookingRoutes.get('/', asyncHandler(async (request, response) => {
   if (status) filter.status = status;
   if (from) filter.from = from;
   if (to) filter.to = to;
+  if (origin) filter.origin = origin;
+  if (destination) filter.destination = destination;
+  if (date) filter.date = date;
 
   const bookings = await listBookings(filter);
 

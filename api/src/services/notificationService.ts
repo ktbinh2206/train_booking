@@ -144,6 +144,7 @@ export async function sendNotification(db: NotificationDbClient, input: {
         booking: {
           id: bookingForEmail.id,
           code: bookingForEmail.code,
+          status: bookingStatus,
           contactEmail: bookingForEmail.contactEmail,
           totalAmount: bookingForEmail.totalAmount.toString(),
           seatCount: bookingForEmail.seatCount,
@@ -152,7 +153,12 @@ export async function sendNotification(db: NotificationDbClient, input: {
             destination: bookingForEmail.trip.destination,
             departureTime: bookingForEmail.trip.departureTime,
             trainName: bookingForEmail.trip.train.name
-          }
+          },
+          passengers: bookingForEmail.bookingSeats.map((item) => ({
+            name: item.passengerName?.trim() || 'Hành khách',
+            type: item.passengerType?.trim() || 'PASSENGER',
+            seatNumber: item.seat?.seatNumber ?? '-'
+          }))
         },
         ticket: {
           id: input.ticket.id,

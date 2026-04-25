@@ -14,10 +14,35 @@ import {
 
 export const tripRoutes = Router();
 
+tripRoutes.get('/', asyncHandler(async (request, response) => {
+  const departureStationId = typeof request.query.departureStationId === 'string' ? request.query.departureStationId : undefined;
+  const arrivalStationId = typeof request.query.arrivalStationId === 'string' ? request.query.arrivalStationId : undefined;
+  const origin = typeof request.query.origin === 'string' ? request.query.origin : undefined;
+  const destination = typeof request.query.destination === 'string' ? request.query.destination : undefined;
+  const date = typeof request.query.date === 'string' ? request.query.date : undefined;
+  const status = typeof request.query.status === 'string' ? request.query.status : undefined;
+  const page = typeof request.query.page === 'string' ? Number.parseInt(request.query.page, 10) : undefined;
+  const pageSize = typeof request.query.pageSize === 'string' ? Number.parseInt(request.query.pageSize, 10) : undefined;
+
+  response.json(await searchTrips({
+    departureStationId,
+    arrivalStationId,
+    origin,
+    destination,
+    date,
+    status,
+    page,
+    pageSize
+  }));
+}));
+
 tripRoutes.get('/search', asyncHandler(async (request, response) => {
   const departureStationId = typeof request.query.departureStationId === 'string' ? request.query.departureStationId : undefined;
   const arrivalStationId = typeof request.query.arrivalStationId === 'string' ? request.query.arrivalStationId : undefined;
+  const origin = typeof request.query.origin === 'string' ? request.query.origin : undefined;
+  const destination = typeof request.query.destination === 'string' ? request.query.destination : undefined;
   const date = typeof request.query.date === 'string' ? request.query.date : undefined;
+  const status = typeof request.query.status === 'string' ? request.query.status : undefined;
   const fromDate = typeof request.query.fromDate === 'string' ? request.query.fromDate : undefined;
   const toDate = typeof request.query.toDate === 'string' ? request.query.toDate : undefined;
   const tripType = typeof request.query.tripType === 'string' && (request.query.tripType === 'one-way' || request.query.tripType === 'round-trip')
@@ -26,7 +51,7 @@ tripRoutes.get('/search', asyncHandler(async (request, response) => {
   const page = typeof request.query.page === 'string' ? Number.parseInt(request.query.page, 10) : undefined;
   const pageSize = typeof request.query.pageSize === 'string' ? Number.parseInt(request.query.pageSize, 10) : undefined;
 
-  const trips = await searchTrips({ departureStationId, arrivalStationId, date, fromDate, toDate, tripType, page, pageSize });
+  const trips = await searchTrips({ departureStationId, arrivalStationId, origin, destination, status, date, fromDate, toDate, tripType, page, pageSize });
 
   response.json(trips);
 }));

@@ -281,16 +281,19 @@ export async function getDemoMeta() {
 }
 
 export async function searchTrips(params: {
+  origin?: string;
+  destination?: string;
   departureStationId?: string;
   arrivalStationId?: string;
   date?: string;
   fromDate?: string;
   toDate?: string;
+  status?: string;
   tripType?: 'one-way' | 'round-trip';
   page?: number;
   pageSize?: number;
 }) {
-  const data = await apiRequest<ApiTripSearchResponse>('/api/trips/search', { params });
+  const data = await apiRequest<ApiTripSearchResponse>('/api/trips', { params });
   return {
     data: data.data.map(toUiTrip),
     page: data.page,
@@ -516,10 +519,63 @@ export async function updateBookingCheckoutInfo(input: {
   });
 }
 
-export async function listBookings(userId?: string) {
+export async function listBookings(input?: string | {
+  userId?: string;
+  status?: string;
+  origin?: string;
+  destination?: string;
+  date?: string;
+  from?: string;
+  to?: string;
+}) {
+  const params = typeof input === 'string'
+    ? { userId: input || undefined }
+    : {
+        userId: input?.userId || undefined,
+        status: input?.status || undefined,
+        origin: input?.origin || undefined,
+        destination: input?.destination || undefined,
+        date: input?.date || undefined,
+        from: input?.from || undefined,
+        to: input?.to || undefined
+      };
+
   return apiRequest<ApiBooking[]>('/api/bookings', {
-    params: { userId: userId || undefined }
+    params
   });
+}
+
+export async function changePassword(input: {
+  oldPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}) {
+  return apiRequest<{ success: boolean }>('/api/users/change-password', {
+    method: 'POST',
+    body: input
+  });
+}
+
+export type AdminSystemSettings = {
+  HOLD_EXPIRE_MINUTES: string;
+  REMINDER_BEFORE_MINUTES: string;
+  REFUND_POLICY_1: string;
+  REFUND_POLICY_2: string;
+  REFUND_POLICY_3: string;
+};
+
+export async function getAdminSettings() {
+  const data = await apiRequest<{ settings: AdminSystemSettings }>('/api/admin/settings');
+  return data.settings;
+}
+
+export async function saveAdminSettings(settings: AdminSystemSettings) {
+  const data = await apiRequest<{ settings: AdminSystemSettings }>('/api/admin/settings', {
+    method: 'PUT',
+    body: { settings }
+  });
+
+  return data.settings;
 }
 
 export async function getTicketByBooking(bookingId: string) {

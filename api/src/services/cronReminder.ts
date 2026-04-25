@@ -4,10 +4,12 @@ import { addMinutes } from '../lib/dates';
 import { renderReminderEmail } from './emailTemplates';
 import { sendEmail } from './emailService';
 import { buildNotificationMessage, buildNotificationTitle } from './notificationMessage';
+import { getSystemRuntimeSettings } from './systemSettingService';
 
 export async function runReminderCron(now = new Date()) {
-  const from = addMinutes(now, 59);
-  const to = addMinutes(now, 60);
+  const runtimeSettings = await getSystemRuntimeSettings();
+  const from = addMinutes(now, runtimeSettings.reminderBeforeMinutes);
+  const to = addMinutes(from, 1);
   const reminderType = 'REMINDER_BEFORE_DEPARTURE' as any;
 
   const bookings = await prisma.booking.findMany({

@@ -4,6 +4,14 @@ import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
+const DEFAULT_SYSTEM_SETTINGS = {
+  HOLD_EXPIRE_MINUTES: '5',
+  REMINDER_BEFORE_MINUTES: '60',
+  REFUND_POLICY_1: '75',
+  REFUND_POLICY_2: '50',
+  REFUND_POLICY_3: '25'
+} as const;
+
 type RoutePlan = {
   originCode: string;
   destinationCode: string;
@@ -29,6 +37,17 @@ function buildUtcTimeFromVn(dayOffset: number, hour: number, minute: number) {
 async function main() {
   const defaultPasswordHash = await bcrypt.hash('123456', 10);
   try {
+    const systemSettingDelegate = (prisma as any).systemSetting;
+    if (systemSettingDelegate && typeof systemSettingDelegate.deleteMany === 'function') {
+      await systemSettingDelegate.deleteMany();
+    } else {
+      try {
+        await prisma.$executeRawUnsafe('DELETE FROM "SystemSetting"');
+      } catch {
+        // Ignore when table does not exist yet.
+      }
+    }
+
     await prisma.bookingSeat.deleteMany();
     await prisma.payment.deleteMany();
     await prisma.ticket.deleteMany();
@@ -36,8 +55,9 @@ async function main() {
     await prisma.emailLog.deleteMany();
     await prisma.booking.deleteMany();
     await prisma.trip.deleteMany();
-    await prisma.seat.deleteMany();
-    await prisma.carriage.deleteMany();
+    await prisma.tripSeat.deleteMany();
+    await prisma.tripCarriage.deleteMany();
+    await prisma.carriageTemplate.deleteMany();
     await prisma.train.deleteMany();
     await prisma.station.deleteMany();
     await prisma.user.deleteMany();
@@ -89,9 +109,31 @@ async function main() {
     prisma.station.create({ data: { code: 'NT', name: 'Nha Trang', city: 'Khánh Hòa' } }),
     prisma.station.create({ data: { code: 'HP', name: 'Hải Phòng', city: 'Hải Phòng' } })
   ]);
+
+  const systemSettingDelegate = (prisma as any).systemSetting;
+  if (systemSettingDelegate && typeof systemSettingDelegate.upsert === 'function') {
+    await Promise.all(
+      Object.entries(DEFAULT_SYSTEM_SETTINGS).map(([key, value]) =>
+        systemSettingDelegate.upsert({
+          where: { key },
+          create: { key, value },
+          update: { value }
+        })
+      )
+    );
+  } else {
+    for (const [key, value] of Object.entries(DEFAULT_SYSTEM_SETTINGS)) {
+      await prisma.$executeRawUnsafe(
+        'INSERT INTO "SystemSetting" ("key", "value", "createdAt", "updatedAt") VALUES ($1, $2, NOW(), NOW()) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", "updatedAt" = NOW()',
+        key,
+        value
+      );
+    }
+  }
   
   console.log(`Admin login: ${admin.email}`);
   console.log(`Demo users: ${customers.map((customer) => customer.email).join(', ')}`);
+  console.log(`Seeded system settings: ${Object.keys(DEFAULT_SYSTEM_SETTINGS).join(', ')}`);
   console.log('Seed logic: fixed timetable routes, carriage template by train, and deterministic booking statuses for demo.');
 }
 
