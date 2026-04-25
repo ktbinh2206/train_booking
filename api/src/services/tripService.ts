@@ -1,7 +1,6 @@
 import { TripStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { isBookingUsable } from '../lib/bookingHelpers';
-import { parseVnDateInputToUtcRange } from '../lib/dates';
 import { getEndOfDayUTC7, getStartOfDayUTC7, getTodayInVN, isValidDateString, toVNTimeString } from '../lib/timezone';
 
 type TripSearchInput = {
@@ -13,10 +12,91 @@ type TripSearchInput = {
   date?: string | undefined;
   fromDate?: string | undefined;
   toDate?: string | undefined;
-  tripType?: 'one-way' | 'round-trip' | undefined;
+  departureTimeRanges?: string[] | undefined;
+  minPrice?: number | undefined;
+  maxPrice?: number | undefined;
   page?: number | undefined;
   pageSize?: number | undefined;
 };
+
+const ALLOWED_TIME_RANGES = new Set(['morning', 'afternoon', 'evening', 'night']);
+
+function buildDepartureTimeRangeConditions(
+  fromDate?: string,
+  toDate?: string,
+  ranges?: string[]
+) {
+  const normalizedRanges = (ranges ?? []).filter((range): range is string => ALLOWED_TIME_RANGES.has(range));
+  if (normalizedRanges.length === 0) {
+    return [] as Array<{ departureTime: { gte: Date; lt: Date } }>;
+  }
+
+  if (!fromDate || !toDate) {
+    return [] as Array<{ departureTime: { gte: Date; lt: Date } }>;
+  }
+
+  const startDay = new Date(fromDate);
+  const endDay = new Date(toDate);
+
+  if (Number.isNaN(startDay.getTime()) || Number.isNaN(endDay.getTime()) || startDay > endDay) {
+    return [] as Array<{ departureTime: { gte: Date; lt: Date } }>;
+  }
+
+  const conditions: Array<{ departureTime: { gte: Date; lt: Date } }> = [];
+  const cursor = new Date(startDay);
+  cursor.setHours(0, 0, 0, 0);
+
+  const endCursor = new Date(endDay);
+  endCursor.setHours(0, 0, 0, 0);
+
+  while (cursor <= endCursor) {
+    const year = cursor.getFullYear();
+    const month = cursor.getMonth();
+    const day = cursor.getDate();
+
+    for (const range of normalizedRanges) {
+      if (range === 'morning') {
+        conditions.push({
+          departureTime: {
+            gte: new Date(year, month, day, 6, 0, 0, 0),
+            lt: new Date(year, month, day, 12, 0, 0, 0)
+          }
+        });
+      }
+
+      if (range === 'afternoon') {
+        conditions.push({
+          departureTime: {
+            gte: new Date(year, month, day, 12, 0, 0, 0),
+            lt: new Date(year, month, day, 18, 0, 0, 0)
+          }
+        });
+      }
+
+      if (range === 'evening') {
+        conditions.push({
+          departureTime: {
+            gte: new Date(year, month, day, 18, 0, 0, 0),
+            lt: new Date(year, month, day + 1, 0, 0, 0, 0)
+          }
+        });
+      }
+
+      if (range === 'night') {
+        conditions.push({
+          departureTime: {
+            gte: new Date(year, month, day, 0, 0, 0, 0),
+            lt: new Date(year, month, day, 6, 0, 0, 0)
+          }
+        });
+      }
+    }
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return conditions;
+}
 
 function normalizePage(page?: number, pageSize?: number) {
   const safePage = Number.isFinite(page) && (page ?? 0) > 0 ? Number(page) : 1;
@@ -145,11 +225,13 @@ async function buildTripListResponse(
 
 export async function searchTrips(input: TripSearchInput) {
   const { page, pageSize, skip } = normalizePage(input.page, input.pageSize);
-  const where: any = { status: { not: TripStatus.CANCELLED } };
+  const where: any = {};
+
+  const andConditions: any[] = [];
 
   const status = input.status?.trim();
-  if (status && Object.values(TripStatus).includes(status as TripStatus)) {
-    where.status = status;
+  if (status && status !== 'all' && Object.values(TripStatus).includes(status as TripStatus)) {
+    where.status = status as TripStatus;
   }
 
   const originFilter = input.origin?.trim();
@@ -158,59 +240,74 @@ export async function searchTrips(input: TripSearchInput) {
   const arrivalStationId = input.arrivalStationId?.trim();
 
   if (departureStationId) {
-    const originStation = await prisma.station.findUnique({
-      where: { id: departureStationId },
-      select: { name: true, code: true }
-    });
+    andConditions.push({ originStationId: departureStationId });
+  }
 
-    if (originStation) {
-      where.OR = [
-        { originStationId: departureStationId },
-        { origin: { contains: originStation.name, mode: 'insensitive' } },
-        { origin: { contains: originStation.code, mode: 'insensitive' } }
-      ];
-    } else {
-      where.originStationId = departureStationId;
-    }
-  } else if (originFilter) {
-    where.origin = { contains: originFilter, mode: 'insensitive' };
+  if (originFilter) {
+    andConditions.push({ origin: { contains: originFilter, mode: 'insensitive' } });
   }
 
   if (arrivalStationId) {
-    const destinationStation = await prisma.station.findUnique({
-      where: { id: arrivalStationId },
-      select: { name: true, code: true }
-    });
+    andConditions.push({ destinationStationId: arrivalStationId });
+  }
 
-    if (destinationStation) {
-      where.AND = [
-        ...(where.AND ?? []),
-        {
-          OR: [
-            { destinationStationId: arrivalStationId },
-            { destination: { contains: destinationStation.name, mode: 'insensitive' } },
-            { destination: { contains: destinationStation.code, mode: 'insensitive' } }
-          ]
-        }
-      ];
-    } else {
-      where.destinationStationId = arrivalStationId;
-    }
-  } else if (destinationFilter) {
-    where.destination = { contains: destinationFilter, mode: 'insensitive' };
+  if (destinationFilter) {
+    andConditions.push({ destination: { contains: destinationFilter, mode: 'insensitive' } });
   }
 
   const fromDate = input.fromDate?.trim() || input.date?.trim();
   const toDate = input.toDate?.trim() || input.date?.trim();
 
   if (fromDate || toDate) {
-    const fromRange = fromDate ? parseVnDateInputToUtcRange(fromDate) : null;
-    const toRange = toDate ? parseVnDateInputToUtcRange(toDate) : null;
+    where.departureTime = {};
 
-    where.departureTime = {
-      gte: fromRange?.start,
-      lte: toRange?.end
-    };
+    if (fromDate) {
+      const parsedFrom = new Date(fromDate);
+      if (!Number.isNaN(parsedFrom.getTime())) {
+        where.departureTime.gte = parsedFrom;
+      }
+    }
+
+    if (toDate) {
+      const parsedTo = new Date(toDate);
+      if (!Number.isNaN(parsedTo.getTime())) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+          parsedTo.setHours(23, 59, 59, 999);
+        }
+        where.departureTime.lte = parsedTo;
+      }
+    }
+  }
+
+  const departureTimeRangeConditions = buildDepartureTimeRangeConditions(
+    fromDate,
+    toDate,
+    input.departureTimeRanges
+  );
+
+  if (departureTimeRangeConditions.length > 0) {
+    andConditions.push({ OR: departureTimeRangeConditions });
+  }
+
+  const minPrice = typeof input.minPrice === 'number' && Number.isFinite(input.minPrice)
+    ? input.minPrice
+    : undefined;
+  const maxPrice = typeof input.maxPrice === 'number' && Number.isFinite(input.maxPrice)
+    ? input.maxPrice
+    : undefined;
+
+  if (minPrice !== undefined || maxPrice !== undefined) {
+    where.price = {};
+    if (minPrice !== undefined) {
+      where.price.gte = minPrice;
+    }
+    if (maxPrice !== undefined) {
+      where.price.lte = maxPrice;
+    }
+  }
+
+  if (andConditions.length > 0) {
+    where.AND = andConditions;
   }
 
   const total = await prisma.trip.count({ where });

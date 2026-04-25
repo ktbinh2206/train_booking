@@ -219,7 +219,7 @@ export default function TicketsPage() {
                       <Download className="w-4 h-4" />
                       Tải xuống
                     </Button>
-                    <Button variant="outline" size="sm" className="flex items-center gap-2">
+                    {/* <Button variant="outline" size="sm" className="flex items-center gap-2">
                       <Share2 className="w-4 h-4" />
                       Chia sẻ
                     </Button>
@@ -237,7 +237,7 @@ export default function TicketsPage() {
                         <X className="w-4 h-4" />
                         {processingBookingId === booking.id ? 'Đang hủy...' : 'Hủy vé'}
                       </Button>
-                    )}
+                    )} */}
                   </div>
                 </div>
               </div>

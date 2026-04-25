@@ -288,12 +288,21 @@ export async function searchTrips(params: {
   date?: string;
   fromDate?: string;
   toDate?: string;
+  departureTimeRanges?: string[];
   status?: string;
-  tripType?: 'one-way' | 'round-trip';
+  minPrice?: number;
+  maxPrice?: number;
   page?: number;
   pageSize?: number;
 }) {
-  const data = await apiRequest<ApiTripSearchResponse>('/api/trips', { params });
+  const queryParams = {
+    ...params,
+    departureTimeRanges: params.departureTimeRanges?.length
+      ? params.departureTimeRanges.join(',')
+      : undefined
+  };
+
+  const data = await apiRequest<ApiTripSearchResponse>('/api/trips', { params: queryParams });
   return {
     data: data.data.map(toUiTrip),
     page: data.page,

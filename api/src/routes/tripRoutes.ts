@@ -20,7 +20,14 @@ tripRoutes.get('/', asyncHandler(async (request, response) => {
   const origin = typeof request.query.origin === 'string' ? request.query.origin : undefined;
   const destination = typeof request.query.destination === 'string' ? request.query.destination : undefined;
   const date = typeof request.query.date === 'string' ? request.query.date : undefined;
+  const fromDate = typeof request.query.fromDate === 'string' ? request.query.fromDate : undefined;
+  const toDate = typeof request.query.toDate === 'string' ? request.query.toDate : undefined;
+  const departureTimeRanges = typeof request.query.departureTimeRanges === 'string'
+    ? request.query.departureTimeRanges.split(',').map((value) => value.trim()).filter(Boolean)
+    : undefined;
   const status = typeof request.query.status === 'string' ? request.query.status : undefined;
+  const minPrice = typeof request.query.minPrice === 'string' ? Number.parseFloat(request.query.minPrice) : undefined;
+  const maxPrice = typeof request.query.maxPrice === 'string' ? Number.parseFloat(request.query.maxPrice) : undefined;
   const page = typeof request.query.page === 'string' ? Number.parseInt(request.query.page, 10) : undefined;
   const pageSize = typeof request.query.pageSize === 'string' ? Number.parseInt(request.query.pageSize, 10) : undefined;
 
@@ -30,7 +37,12 @@ tripRoutes.get('/', asyncHandler(async (request, response) => {
     origin,
     destination,
     date,
+    fromDate,
+    toDate,
+    departureTimeRanges,
     status,
+    minPrice,
+    maxPrice,
     page,
     pageSize
   }));
@@ -45,13 +57,15 @@ tripRoutes.get('/search', asyncHandler(async (request, response) => {
   const status = typeof request.query.status === 'string' ? request.query.status : undefined;
   const fromDate = typeof request.query.fromDate === 'string' ? request.query.fromDate : undefined;
   const toDate = typeof request.query.toDate === 'string' ? request.query.toDate : undefined;
-  const tripType = typeof request.query.tripType === 'string' && (request.query.tripType === 'one-way' || request.query.tripType === 'round-trip')
-    ? request.query.tripType
+  const departureTimeRanges = typeof request.query.departureTimeRanges === 'string'
+    ? request.query.departureTimeRanges.split(',').map((value) => value.trim()).filter(Boolean)
     : undefined;
+  const minPrice = typeof request.query.minPrice === 'string' ? Number.parseFloat(request.query.minPrice) : undefined;
+  const maxPrice = typeof request.query.maxPrice === 'string' ? Number.parseFloat(request.query.maxPrice) : undefined;
   const page = typeof request.query.page === 'string' ? Number.parseInt(request.query.page, 10) : undefined;
   const pageSize = typeof request.query.pageSize === 'string' ? Number.parseInt(request.query.pageSize, 10) : undefined;
 
-  const trips = await searchTrips({ departureStationId, arrivalStationId, origin, destination, status, date, fromDate, toDate, tripType, page, pageSize });
+  const trips = await searchTrips({ departureStationId, arrivalStationId, origin, destination, status, date, fromDate, toDate, departureTimeRanges, minPrice, maxPrice, page, pageSize });
 
   response.json(trips);
 }));
