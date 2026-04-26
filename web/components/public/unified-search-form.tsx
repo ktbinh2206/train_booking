@@ -57,25 +57,25 @@ export function UnifiedSearchForm({
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    if (!formData.departureStationId.trim()) {
-      newErrors.departureStationId = 'Vui lòng chọn ga đi';
-    }
+    // if (!formData.departureStationId.trim()) {
+    //   newErrors.departureStationId = 'Vui lòng chọn ga đi';
+    // }
 
-    if (!formData.arrivalStationId.trim()) {
-      newErrors.arrivalStationId = 'Vui lòng chọn ga đến';
-    }
+    // if (!formData.arrivalStationId.trim()) {
+    //   newErrors.arrivalStationId = 'Vui lòng chọn ga đến';
+    // }
 
     if (formData.departureStationId === formData.arrivalStationId && formData.departureStationId) {
       newErrors.arrivalStationId = 'Ga đi và ga đến phải khác nhau';
     }
 
-    if (!formData.fromDate.trim()) {
-      newErrors.fromDate = 'Vui lòng chọn ngày bắt đầu';
-    }
+    // if (!formData.fromDate.trim()) {
+    //   newErrors.fromDate = 'Vui lòng chọn ngày bắt đầu';
+    // }
 
-    if (!formData.toDate.trim()) {
-      newErrors.toDate = 'Vui lòng chọn ngày kết thúc';
-    }
+    // if (!formData.toDate.trim()) {
+    //   newErrors.toDate = 'Vui lòng chọn ngày kết thúc';
+    // }
 
     if (formData.fromDate && formData.toDate && formData.toDate < formData.fromDate) {
       newErrors.toDate = 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu';
